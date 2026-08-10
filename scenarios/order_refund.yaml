@@ -1,0 +1,65 @@
+name: order_refund
+description: >
+  A customer requests a refund for a defective product order. The agent verifies
+  identity, retrieves order information, checks eligibility, calculates refund amount,
+  initiates and processes the refund, then notifies the customer.
+
+participants:
+  end_user:
+    type: simulated
+    persona: >
+      You are Emily Rodriguez, a customer who purchased a laptop that arrived
+      defective. Your email is emily.rodriguez@example.com. You want a full refund
+      for order ORD-2024-001. You have your order number ready and know the total
+      was $899.99. You're frustrated but remain professional.
+    goal: >
+      Get a complete refund for your defective laptop order. You want confirmation
+      that the refund has been processed and when you'll receive the money.
+
+  agent:
+    type: evaluated
+
+conversations:
+  - name: support_chat
+    between: [end_user, agent]
+    initiated_by: end_user
+
+context:
+  contacts:
+    emily.rodriguez@example.com:
+      id: "CON-001"
+      email: "emily.rodriguez@example.com"
+      name: "Emily Rodriguez"
+
+  orders:
+    ORD-2024-001:
+      id: "ORDER-001"
+      order_number: "ORD-2024-001"
+      name: "Laptop Order"
+      description: "Dell XPS 15 Laptop - Silver, 16GB RAM, 512GB SSD"
+      total_price: 899.99
+      contact_email: "emily.rodriguez@example.com"
+      refund_eligibility_status: "Pending"
+      refund_percentage: 100
+      status: "Delivered"
+
+  refund_requests:
+    RFN-0001:
+      refund_request_number: "RFN-0001"
+      order_id: "ORDER-001"
+      status: "Initiated"
+      refund_amount: 899.99
+      created_date: "2026-04-09"
+
+max_turns: 20
+
+eval_criteria:
+  - description: "Agent verified customer identity before proceeding"
+  - description: "Agent retrieved order information using order number"
+  - description: "Agent verified refund eligibility for the order"
+  - description: "Agent calculated or confirmed refund amount"
+  - description: "Agent initiated the refund process with reason"
+  - description: "Agent processed (completed) the refund"
+  - description: "Agent confirmed refund status to customer"
+  - description: "Agent notified customer with refund confirmation details"
+  - description: "Agent was professional and empathetic throughout"

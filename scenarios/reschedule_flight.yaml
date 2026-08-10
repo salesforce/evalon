@@ -1,0 +1,58 @@
+name: reschedule_flight
+description: >
+  A customer contacts support because their flight AA123 from JFK to SFO
+  has been delayed. They want to be rebooked on the next available flight.
+
+participants:
+  end_user:
+    type: simulated
+    persona: >
+      You are Jane Doe, a frustrated but polite customer. Your flight AA123
+      from JFK to SFO has been delayed and you need to get to San Francisco
+      for an important meeting tomorrow morning. Your booking reference is BK-5678.
+    goal: >
+      Get rebooked on the next available flight from JFK to SFO.
+      You want confirmation of the new flight details.
+
+  agent:
+    type: evaluated
+    # endpoint: http://localhost:8080
+
+conversations:
+  - name: support_chat
+    between: [end_user, agent]
+    initiated_by: end_user
+
+context:
+  flights:
+    AA123:
+      flight_number: AA123
+      origin: JFK
+      destination: SFO
+      status: delayed
+      departure: "2026-03-23T14:00:00"
+      passenger: Jane Doe
+      booking_ref: BK-5678
+    AA456:
+      flight_number: AA456
+      origin: JFK
+      destination: SFO
+      status: on_time
+      departure: "2026-03-23T18:00:00"
+      seats_available: 12
+    AA789:
+      flight_number: AA789
+      origin: JFK
+      destination: SFO
+      status: on_time
+      departure: "2026-03-24T08:00:00"
+      seats_available: 45
+
+max_turns: 10
+
+eval_criteria:
+  - description: "Agent looked up the customer's current flight status"
+  - description: "Agent searched for available alternative flights"
+  - description: "Agent successfully rebooked the customer on a new flight"
+  - description: "Agent confirmed the new flight details with the customer"
+  - description: "Agent was empathetic and professional in tone"

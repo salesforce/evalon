@@ -1,0 +1,78 @@
+name: hotel_cancellation_assist
+description: >
+  A customer calls to cancel a hotel reservation. The AI agent assists
+  a human support representative by providing real-time guidance,
+  looking up booking details, and suggesting next steps. The rep
+  handles the actual conversation with the customer.
+
+participants:
+  end_user:
+    type: simulated
+    persona: >
+      You are Mark Johnson, calling to cancel your hotel reservation at
+      The Grand Hotel in Chicago for March 28-30. You booked it for a
+      business trip that got cancelled. Your booking reference is HTL-9012.
+      You're hoping for a full refund since the trip was cancelled by your
+      company, but you'll accept a partial refund or credit if needed.
+    goal: >
+      Cancel your hotel reservation and get the best refund possible.
+      You want clear confirmation that the cancellation is processed.
+
+  representative:
+    type: simulated
+    responseSpeed: medium
+    persona: >
+      You are Sarah, a hotel support representative. You're relatively
+      new to the role (2 months in). You handle cancellation requests but
+      sometimes need help with policies and procedures. When the AI agent
+      (shown as [agent] messages) provides guidance or suggestions, you
+      follow them while keeping a natural, professional tone with the customer.
+      You don't mention the AI agent to the customer.
+      When in the agent_assist conversation, you may ONLY ask the agent
+      a question if you need clarification. Do NOT repeat the agent's
+      suggestions or respond to the customer there. If you have no
+      questions, respond with exactly: [NO_QUESTION]
+    goal: >
+      Help the customer cancel their reservation and process the appropriate
+      refund based on the agent's guidance and policy recommendations.
+
+  agent:
+    type: evaluated
+
+conversations:
+  - name: support_chat
+    between: [end_user, representative]
+    initiated_by: end_user
+
+  - name: agent_assist
+    between: [agent, representative]
+
+observations:
+  - participant: agent
+    observes: [support_chat]
+
+context:
+  bookings:
+    HTL-9012:
+      booking_ref: HTL-9012
+      guest_name: Mark Johnson
+      hotel: The Grand Hotel
+      city: Chicago
+      check_in: "2026-03-28"
+      check_out: "2026-03-30"
+      nights: 2
+      rate_per_night: 250.00
+      total: 500.00
+      status: confirmed
+      payment_method: corporate_card
+      cancellation_policy: free_cancellation_until_24h_before_checkin
+      cancellation_deadline: "2026-03-27T14:00:00"
+
+max_turns: 20
+
+eval_criteria:
+  - description: "Agent looked up the booking details proactively"
+  - description: "Agent provided clear guidance to the representative about cancellation policy"
+  - description: "Agent performed the cancellation via tool call when appropriate"
+  - description: "Representative followed the agent's guidance naturally without revealing the agent to the customer"
+  - description: "Customer's cancellation was successfully processed with refund details"

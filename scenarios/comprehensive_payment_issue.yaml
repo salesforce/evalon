@@ -1,0 +1,119 @@
+name: comprehensive_payment_issue
+description: >
+  A customer contacts support with multiple payment issues including fraud concerns,
+  payment method management, refund requests, and address updates. This scenario
+  exercises all payment issue tools.
+
+participants:
+  end_user:
+    type: simulated
+    persona: >
+      You are John Martinez, a customer with several urgent payment issues.
+      Your email is john.martinez@example.com. You recently moved and need to
+      update your address. You noticed a fraudulent transaction on your account,
+      want to renew your expiring credit card, and need to activate a new payment
+      method while deactivating an old one. You're stressed but trying to remain calm.
+    goal: >
+      Resolve all your payment issues: verify identity, update address, block
+      the fraudulent transaction, get a refund, renew your expiring card,
+      activate your new card, and deactivate your old card. If issues persist,
+      request escalation.
+
+  agent:
+    type: evaluated
+
+conversations:
+  - name: support_chat
+    between: [end_user, agent]
+    initiated_by: end_user
+
+context:
+  contacts:
+    john.martinez@example.com:
+      id: "CON-001"
+      email: "john.martinez@example.com"
+      name: "John Martinez"
+      postal_code: "10001"
+      state: "NY"
+      mailing_address: "456 Broadway, New York, NY 10001"
+
+  payment_methods:
+    PM-001:
+      id: "PM-001"
+      contact_id: "CON-001"
+      last_four_digits: "1234"
+      status: "Active"
+      type: "credit_card"
+      brand: "Visa"
+      expiry_date: "2026-05-31"
+      billing_address: "456 Broadway, New York, NY 10001"
+      payment_limit: 5000.00
+    PM-002:
+      id: "PM-002"
+      contact_id: "CON-001"
+      last_four_digits: "5678"
+      status: "Inactive"
+      type: "credit_card"
+      brand: "Mastercard"
+      expiry_date: "2028-12-31"
+      billing_address: "456 Broadway, New York, NY 10001"
+      payment_limit: 3000.00
+    PM-003:
+      id: "PM-003"
+      contact_id: "CON-001"
+      last_four_digits: "9012"
+      status: "Active"
+      type: "debit_card"
+      brand: "Visa"
+      expiry_date: "2026-06-30"
+      billing_address: "789 Old Address, Boston, MA 02101"
+      payment_limit: 2000.00
+
+  transactions:
+    TXN-001:
+      id: "TXN-001"
+      payment_id: "PM-001"
+      status: "Pending"
+      amount: 499.99
+      date: "2026-04-09"
+      description: "Suspicious purchase from unknown merchant"
+    TXN-002:
+      id: "TXN-002"
+      payment_id: "PM-001"
+      status: "Completed"
+      amount: 89.99
+      date: "2026-04-08"
+      description: "Legitimate purchase"
+    TXN-003:
+      id: "TXN-003"
+      payment_id: "PM-003"
+      status: "Completed"
+      amount: 150.00
+      date: "2026-04-07"
+      description: "Monthly subscription"
+
+  cases:
+    CASE-001:
+      id: "CASE-001"
+      contact_id: "CON-001"
+      status: "Open"
+      subject: "Multiple payment issues"
+      priority: "High"
+
+max_turns: 30
+
+eval_criteria:
+  - description: "Agent verified customer identity before proceeding with sensitive actions"
+  - description: "Agent confirmed or updated customer's mailing address"
+  - description: "Agent retrieved transaction information for fraud investigation"
+  - description: "Agent validated payment method associated with transactions"
+  - description: "Agent blocked the fraudulent transaction"
+  - description: "Agent initiated refund for the fraudulent transaction"
+  - description: "Agent checked for pending transactions before payment method changes"
+  - description: "Agent renewed the expiring payment method"
+  - description: "Agent activated the new payment method"
+  - description: "Agent deactivated the old payment method after verifying no pending transactions"
+  - description: "Agent updated payment method details (address or limit)"
+  - description: "Agent sent notification to customer about resolution"
+  - description: "Agent handled the case professionally and resolved issues systematically"
+  - description: "If needed, agent appropriately escalated the case or added new payment method"

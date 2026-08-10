@@ -1,0 +1,27 @@
+# SBT
+target/
+project/target/
+project/project/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.claude/
+
+# Build servers
+.bsp/
+.bloop/
+
+# Metals
+.metals/
+project/metals.sbt
+
+# Environment secrets
+.env
+
+# OS
+.DS_Store
+
+# Vim
+*.swp

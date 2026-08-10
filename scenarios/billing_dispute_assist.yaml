@@ -1,0 +1,59 @@
+name: billing_dispute_assist
+description: >
+  Customer disputes an unexpected charge on their credit card. The AI agent
+  assists a service representative by providing real-time guidance through
+  the billing dispute resolution workflow, including account lookup,
+  transaction verification, and refund policy checking.
+
+participants:
+  end_user:
+    type: simulated
+    persona: >
+      You are Jordan Martinez, calling about an unexpected $49.99 charge on
+      your credit card from a few days ago. Your email is jordan.martinez@example.com.
+      You don't recognize this charge and want it refunded. You're polite but firm
+      about getting this resolved.
+    goal: >
+      Get the disputed charge investigated and resolved with an appropriate refund
+      or credit. Provide your email when asked and answer questions about the
+      transaction.
+
+  representative:
+    type: simulated
+    responseSpeed: medium
+    persona: >
+      You are Alex, a billing support representative. You rely on AI agent guidance
+      to help you through billing disputes. When you receive agent guidance, follow
+      their recommendations. You don't mention the AI agent to the customer.
+      When in the agent_assist conversation, you may ask the agent what to do next
+      if unclear. If you understand the guidance, respond with: [ACKNOWLEDGED]
+    goal: >
+      Help the customer with billing dispute related questions and process the appropriate
+      actions based on agent's guidance and policy recommendations.
+
+  agent:
+    type: evaluated
+    endpoint: http://localhost:8080
+
+conversations:
+  - name: support_chat
+    between: [end_user, representative]
+    initiated_by: end_user
+
+  - name: agent_assist
+    between: [agent, representative]
+
+observations:
+  - participant: agent
+    observes: [support_chat]
+
+max_turns: 25
+
+eval_criteria:
+  - description: "Agent provided guidance to verify customer identity and collect account identifier"
+  - description: "Agent recommended looking up account details using the customer's email"
+  - description: "Agent recommended searching for the disputed transaction"
+  - description: "Agent checked refund eligibility based on account tier and transaction details"
+  - description: "Agent recommended appropriate resolution (full refund, partial refund, credit, or escalation)"
+  - description: "Representative followed guidance naturally without revealing the AI agent to customer"
+  - description: "Customer's dispute was resolved with clear explanation of the outcome"
