@@ -20,13 +20,10 @@ package com.salesforce.spearhead.evalon.actor
 import scala.concurrent.duration.*
 import scala.util.{Failure, Random, Success}
 
-import io.circe.*
-import io.circe.syntax.*
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors, TimerScheduler}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
-import com.salesforce.spearhead.evalon.Settings
-import com.salesforce.spearhead.evalon.llm.{AnthropicClient, ContentBlock, CreateMessageRequest}
+import com.salesforce.spearhead.evalon.llm.{Llm, ChatMessage}
 import com.salesforce.spearhead.evalon.model.{
   Action,
   ConversationConfig,
@@ -49,18 +46,19 @@ import com.salesforce.spearhead.evalon.model.{
  */
 object SimulatedParticipant:
 
+  private case class Setup(
+      config: ParticipantConfig,
+      llm: Llm,
+      runner: ActorRef[ScenarioRunner.Command],
+      conversations: Map[String, ConversationConfig],
+      zeroThinkingDelay: Boolean
+  )
+
   // Internal command (LLM results come back via pipeToSelf)
   private[actor] case class LlmResult(conversation: String, kind: ResponseKind)
 
   // Internal command (timer fires after thinking delay)
   private[actor] case object ThinkingComplete
-
-  private case class ChatMessage(role: String, content: String):
-    def toJson: Json = Json.obj("role" -> role.asJson, "content" -> content.asJson)
-
-  private object ChatMessage:
-    def user(content: String): ChatMessage = ChatMessage("user", content)
-    def assistant(content: String): ChatMessage = ChatMessage("assistant", content)
 
   private[actor] enum ResponseKind:
     case Text(content: String)
@@ -119,46 +117,37 @@ Respond with only your message content. Your output is delivered to the other pa
 
   def apply(
       config: ParticipantConfig,
-      client: AnthropicClient,
+      llm: Llm,
       runner: ActorRef[ScenarioRunner.Command],
-      conversations: Map[String, ConversationConfig] = Map.empty
+      conversations: Map[String, ConversationConfig] = Map.empty,
+      zeroThinkingDelay: Boolean = false
   ): Behavior[Cmd] =
-    Behaviors.withTimers(timers => idle(config, client, runner, conversations, Map.empty, timers))
+    val setup = Setup(config, llm, runner, conversations, zeroThinkingDelay)
+    Behaviors.withTimers(timers => idle(setup, Map.empty, timers))
 
-  private def thinkingDelay(config: ParticipantConfig): FiniteDuration =
-    config.responseSpeed match
-      case Some(ResponseSpeed.Fast)   => (2000 + Random.nextInt(1000)).millis
-      case Some(ResponseSpeed.Medium) => (5000 + Random.nextInt(1000)).millis
-      case Some(ResponseSpeed.Slow)   => (8000 + Random.nextInt(2000)).millis
-      case None                       => 0.millis
+  private def thinkingDelay(setup: Setup): FiniteDuration =
+    if setup.zeroThinkingDelay then 0.millis
+    else
+      setup.config.responseSpeed match
+        case Some(ResponseSpeed.Fast)   => (2000 + Random.nextInt(1000)).millis
+        case Some(ResponseSpeed.Medium) => (5000 + Random.nextInt(1000)).millis
+        case Some(ResponseSpeed.Slow)   => (8000 + Random.nextInt(2000)).millis
+        case None                       => 0.millis
 
   /** Idle state — waiting for messages. */
   private def idle(
-      config: ParticipantConfig,
-      client: AnthropicClient,
-      runner: ActorRef[ScenarioRunner.Command],
-      conversations: Map[String, ConversationConfig],
+      setup: Setup,
       history: Map[String, List[ChatMessage]],
       timers: TimerScheduler[Cmd]
   ): Behavior[Cmd] = Behaviors.receive {
     case (ctx, Participant.ReceiveMessage(msg, conversation)) =>
-      val newHistory = appendToHistory(config, history, msg, conversation)
+      val newHistory = appendToHistory(setup.config, history, msg, conversation)
       val cycle = CycleState(
         pending = Set.empty,
         proactiveAttempted = Set.empty,
         historyAtCycleStart = newHistory
       )
-      enterThinking(
-        config,
-        client,
-        runner,
-        conversations,
-        newHistory,
-        conversation,
-        cycle,
-        timers,
-        ctx
-      )
+      enterThinking(setup, newHistory, conversation, cycle, timers, ctx)
 
     case (_, Participant.ReceiveEvents(_)) =>
       // Gap: simulated participants currently ignore observed events. Adding event handling
@@ -176,40 +165,28 @@ Respond with only your message content. Your output is delivered to the other pa
 
   /** Enter thinking: schedule the delay (or skip straight to generating if no delay configured). */
   private def enterThinking(
-      config: ParticipantConfig,
-      client: AnthropicClient,
-      runner: ActorRef[ScenarioRunner.Command],
-      conversations: Map[String, ConversationConfig],
+      setup: Setup,
       history: Map[String, List[ChatMessage]],
       conversation: String,
       cycle: CycleState,
       timers: TimerScheduler[Cmd],
       ctx: ActorContext[Cmd]
   ): Behavior[Cmd] =
-    val delay = thinkingDelay(config)
+    val delay = thinkingDelay(setup)
     if delay > 0.millis then
-      ctx.log.info("{} entering thinking for {} ({}ms)", config.name, conversation, delay.toMillis)
-      timers.startSingleTimer(ThinkingTimerKey, ThinkingComplete, delay)
-      thinking(config, client, runner, conversations, history, conversation, cycle, timers)
-    else
-      startGeneration(
-        config,
-        client,
-        runner,
-        conversations,
-        history,
+      ctx.log.info(
+        "{} entering thinking for {} ({}ms)",
+        setup.config.name,
         conversation,
-        cycle,
-        timers,
-        ctx
+        delay.toMillis
       )
+      timers.startSingleTimer(ThinkingTimerKey, ThinkingComplete, delay)
+      thinking(setup, history, conversation, cycle, timers)
+    else startGeneration(setup, history, conversation, cycle, timers, ctx)
 
   /** Thinking state — absorbing messages, timer running. Resets on any new input. */
   private def thinking(
-      config: ParticipantConfig,
-      client: AnthropicClient,
-      runner: ActorRef[ScenarioRunner.Command],
-      conversations: Map[String, ConversationConfig],
+      setup: Setup,
       history: Map[String, List[ChatMessage]],
       activeConversation: String,
       cycle: CycleState,
@@ -217,49 +194,30 @@ Respond with only your message content. Your output is delivered to the other pa
   ): Behavior[Cmd] = Behaviors.receive {
 
     case (ctx, Participant.ReceiveMessage(msg, conversation)) =>
-      val newHistory = appendToHistory(config, history, msg, conversation)
+      val newHistory = appendToHistory(setup.config, history, msg, conversation)
 
       val newCycle =
         if conversation == activeConversation then cycle
         else cycle.copy(pending = cycle.pending + conversation)
 
-      val delay = thinkingDelay(config)
+      val delay = thinkingDelay(setup)
       ctx.log.info(
         "{} resetting thinking timer (incoming in {}, {}ms)",
-        config.name,
+        setup.config.name,
         conversation,
         delay.toMillis
       )
 
       timers.startSingleTimer(ThinkingTimerKey, ThinkingComplete, delay)
-      thinking(
-        config,
-        client,
-        runner,
-        conversations,
-        newHistory,
-        activeConversation,
-        newCycle,
-        timers
-      )
+      thinking(setup, newHistory, activeConversation, newCycle, timers)
 
     case (ctx, ThinkingComplete) =>
       ctx.log.info(
         "{} thinking complete, starting generation for {}",
-        config.name,
+        setup.config.name,
         activeConversation
       )
-      startGeneration(
-        config,
-        client,
-        runner,
-        conversations,
-        history,
-        activeConversation,
-        cycle,
-        timers,
-        ctx
-      )
+      startGeneration(setup, history, activeConversation, cycle, timers, ctx)
 
     case (_, Participant.ReceiveEvents(_)) =>
       // Gap: see idle's ReceiveEvents handler.
@@ -272,30 +230,18 @@ Respond with only your message content. Your output is delivered to the other pa
 
   /** Generating state — LLM call in flight. Accumulate incoming messages. */
   private def generating(
-      config: ParticipantConfig,
-      client: AnthropicClient,
-      runner: ActorRef[ScenarioRunner.Command],
-      conversations: Map[String, ConversationConfig],
+      setup: Setup,
       history: Map[String, List[ChatMessage]],
       activeConversation: String,
       cycle: CycleState,
       timers: TimerScheduler[Cmd]
   ): Behavior[Cmd] = Behaviors.receive {
     case (_, Participant.ReceiveMessage(msg, conversation)) =>
-      val newHistory = appendToHistory(config, history, msg, conversation)
+      val newHistory = appendToHistory(setup.config, history, msg, conversation)
       val newPending =
         if conversation == activeConversation then cycle.pending
         else cycle.pending + conversation
-      generating(
-        config,
-        client,
-        runner,
-        conversations,
-        newHistory,
-        activeConversation,
-        cycle.copy(pending = newPending),
-        timers
-      )
+      generating(setup, newHistory, activeConversation, cycle.copy(pending = newPending), timers)
 
     case (_, Participant.ReceiveEvents(_)) =>
       // Gap: see idle's ReceiveEvents handler.
@@ -309,10 +255,10 @@ Respond with only your message content. Your output is delivered to the other pa
       // Shared by Text and TextThenEnd, which differ only in what follows.
       def sendText(text: String): Map[String, List[ChatMessage]] =
         val msgs = history.getOrElse(conversation, Nil)
-        runner ! ScenarioRunner.ParticipantResponse(
-          config.name,
+        setup.runner ! ScenarioRunner.ParticipantResponse(
+          setup.config.name,
           conversation,
-          Action.Send(Message(config.name, text))
+          Action.Send(Message(setup.config.name, text))
         )
         history + (conversation -> (msgs :+ ChatMessage.assistant(text)))
 
@@ -322,60 +268,40 @@ Respond with only your message content. Your output is delivered to the other pa
       kind match
         case ResponseKind.Text(text) =>
           val newHistory = sendText(text)
-          processPostGeneration(
-            config,
-            client,
-            runner,
-            conversations,
-            newHistory,
-            updatedCycle,
-            timers,
-            ctx
-          )
+          processPostGeneration(setup, newHistory, updatedCycle, timers, ctx)
 
         case ResponseKind.TextThenEnd(text) =>
           val newHistory = sendText(text)
-          runner ! ScenarioRunner.ParticipantResponse(
-            config.name,
+          setup.runner ! ScenarioRunner.ParticipantResponse(
+            setup.config.name,
             conversation,
             Action.End
           )
-          idle(config, client, runner, conversations, newHistory, timers)
+          idle(setup, newHistory, timers)
 
         case ResponseKind.End =>
-          runner ! ScenarioRunner.ParticipantResponse(
-            config.name,
+          setup.runner ! ScenarioRunner.ParticipantResponse(
+            setup.config.name,
             conversation,
             Action.End
           )
-          idle(config, client, runner, conversations, history, timers)
+          idle(setup, history, timers)
 
         case ResponseKind.Silent =>
-          ctx.log.debug("{} responded [NO_QUESTION] in {}", config.name, conversation)
-          processPostGeneration(
-            config,
-            client,
-            runner,
-            conversations,
-            history,
-            updatedCycle,
-            timers,
-            ctx
-          )
+          ctx.log.debug("{} responded [NO_QUESTION] in {}", setup.config.name, conversation)
+          processPostGeneration(setup, history, updatedCycle, timers, ctx)
   }
 
   private def startGeneration(
-      config: ParticipantConfig,
-      client: AnthropicClient,
-      runner: ActorRef[ScenarioRunner.Command],
-      conversations: Map[String, ConversationConfig],
+      setup: Setup,
       history: Map[String, List[ChatMessage]],
       conversation: String,
       cycle: CycleState,
       timers: TimerScheduler[Cmd],
       ctx: ActorContext[Cmd]
   ): Behavior[Cmd] =
-    val systemPrompt = buildSystemPrompt(config, conversation, conversations, history)
+    val systemPrompt =
+      buildSystemPrompt(setup.config, conversation, setup.conversations, history)
 
     val msgs = history.get(conversation) match
       case Some(base) =>
@@ -385,19 +311,12 @@ Respond with only your message content. Your output is delivered to the other pa
       case None =>
         List(ChatMessage.user("[system]: The conversation is starting. Please begin."))
 
-    val request = CreateMessageRequest(
-      model = Settings.defaultModel,
-      maxTokens = 1024,
-      system = systemPrompt,
-      messages = msgs.map(_.toJson)
-    )
-
-    ctx.pipeToSelf(client.createMessage(request)) {
+    ctx.pipeToSelf(setup.llm.completeAsync(systemPrompt, msgs)) {
       case Success(response) =>
-        val text = response.content.collectFirst { case ContentBlock.TextBlock(t) => t }
+        val text = Option(response).map(_.trim).filter(_.nonEmpty)
         // Only treat [END] as a termination signal when it's the trailing token, not when
         // it appears mid-text (which would happen e.g. if the model quoted it).
-        val kind = text.map(_.trim) match
+        val kind = text match
           case Some(t) if t.endsWith(Signals.End) =>
             val remaining = t.stripSuffix(Signals.End).trim
             if remaining.nonEmpty then ResponseKind.TextThenEnd(remaining)
@@ -408,14 +327,14 @@ Respond with only your message content. Your output is delivered to the other pa
             if remaining.nonEmpty then ResponseKind.Text(remaining)
             else ResponseKind.Silent
           case Some(t) => ResponseKind.Text(t)
-          case None => ResponseKind.Silent
+          case None    => ResponseKind.Silent
         LlmResult(conversation, kind)
       case Failure(e) =>
-        ctx.log.error("LLM call failed for participant {}", config.name, e)
+        ctx.log.error("LLM call failed for participant {}", setup.config.name, e)
         LlmResult(conversation, ResponseKind.Silent)
     }
 
-    generating(config, client, runner, conversations, history, conversation, cycle, timers)
+    generating(setup, history, conversation, cycle, timers)
 
   /**
    * After a generation completes, decide what (if anything) to do next within the same cycle.
@@ -429,10 +348,7 @@ Respond with only your message content. Your output is delivered to the other pa
    *   3. Otherwise, return to idle.
    */
   private def processPostGeneration(
-      config: ParticipantConfig,
-      client: AnthropicClient,
-      runner: ActorRef[ScenarioRunner.Command],
-      conversations: Map[String, ConversationConfig],
+      setup: Setup,
       history: Map[String, List[ChatMessage]],
       cycle: CycleState,
       timers: TimerScheduler[Cmd],
@@ -444,17 +360,7 @@ Respond with only your message content. Your output is delivered to the other pa
           pending = tail.toSet,
           proactiveAttempted = cycle.proactiveAttempted + head
         )
-        enterThinking(
-          config,
-          client,
-          runner,
-          conversations,
-          history,
-          head,
-          updatedCycle,
-          timers,
-          ctx
-        )
+        enterThinking(setup, history, head, updatedCycle, timers, ctx)
 
       case Nil =>
         // Check if any conversation grew during this cycle — if so, we may have new
@@ -478,19 +384,9 @@ Respond with only your message content. Your output is delivered to the other pa
         proactive match
           case Some(conv) =>
             val updatedCycle = cycle.copy(proactiveAttempted = cycle.proactiveAttempted + conv)
-            enterThinking(
-              config,
-              client,
-              runner,
-              conversations,
-              history,
-              conv,
-              updatedCycle,
-              timers,
-              ctx
-            )
+            enterThinking(setup, history, conv, updatedCycle, timers, ctx)
           case None =>
-            idle(config, client, runner, conversations, history, timers)
+            idle(setup, history, timers)
 
   private def appendToHistory(
       config: ParticipantConfig,

@@ -23,12 +23,11 @@ import io.circe.*
 import io.circe.parser.*
 import io.circe.syntax.*
 
-import com.salesforce.spearhead.evalon.Settings
-import com.salesforce.spearhead.evalon.llm.{AnthropicClient, ContentBlock, CreateMessageRequest}
+import com.salesforce.spearhead.evalon.llm.{Llm, ChatMessage}
 import com.salesforce.spearhead.evalon.model.*
 
 /** LLM-as-judge evaluator that scores agent performance against criteria. */
-class Evaluator(client: AnthropicClient)(using ec: ExecutionContext):
+class Evaluator(llm: Llm)(using ec: ExecutionContext):
 
   private val judgeSystemPrompt: String =
     """You are an expert evaluator judging an AI agent's performance in a simulated scenario.
@@ -80,15 +79,8 @@ $criteriaText
 
 Evaluate the agent's performance against each criterion. Use the ground truth data to verify factual correctness of the agent's responses."""
 
-    val request = CreateMessageRequest(
-      model = Settings.defaultModel,
-      maxTokens = 2048,
-      system = judgeSystemPrompt,
-      messages = List(Json.obj("role" -> "user".asJson, "content" -> userPrompt.asJson)),
-    )
-
-    client.createMessage(request).map { response =>
-      val text = response.content.collectFirst { case ContentBlock.TextBlock(t) => t }.getOrElse("{}")
+    llm.completeAsync(judgeSystemPrompt, List(ChatMessage.user(userPrompt))).map { response =>
+      val text = Option(response).filter(_.nonEmpty).getOrElse("{}")
 
       // Extract JSON from response (model may wrap in markdown fences)
       // (?s) enables dotall mode so .* matches across newlines

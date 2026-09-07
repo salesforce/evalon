@@ -21,9 +21,11 @@ import java.io.FileInputStream
 import java.nio.file.Files
 import java.security.KeyStore
 import java.security.cert.{CertificateFactory, X509Certificate}
+import java.util.concurrent.CompletionStage
 import javax.net.ssl.{SSLContext, TrustManagerFactory}
 
 import scala.concurrent.{ExecutionContext, Future}
+import scala.jdk.FutureConverters.*
 
 import io.circe.*
 import io.circe.parser.*
@@ -36,7 +38,8 @@ class AnthropicClient(
   baseUrl: String = Settings.anthropicBaseUrl,
   apiKey: String = Settings.anthropicApiKey,
   backend: Backend[Future],
-)(using ec: ExecutionContext):
+)(using ec: ExecutionContext)
+    extends Llm:
 
   private val retryableStatusCodes = Set(429, 502, 503, 529)
   private val maxRetries = 3
@@ -45,6 +48,21 @@ class AnthropicClient(
   def createMessage(request: CreateMessageRequest): Future[CreateMessageResponse] =
     val requestBody = request.asJson.noSpaces
     sendWithRetry(requestBody)
+
+  override def complete(prompt: String): CompletionStage[String] =
+    completeChat("", List(ChatMessage.user(prompt)))
+
+  override def completeChat(system: String, messages: List[ChatMessage]): CompletionStage[String] =
+    val request = CreateMessageRequest(
+      model = Settings.defaultModel,
+      maxTokens = 2048,
+      system = system,
+      messages = messages.map(_.toJson),
+    )
+    createMessage(request).map(textOf).asJava
+
+  private def textOf(response: CreateMessageResponse): String =
+    response.content.collectFirst { case ContentBlock.TextBlock(t) => t }.getOrElse("")
 
   private def sendWithRetry(
       requestBody: String,

@@ -25,8 +25,7 @@ import io.circe.syntax.*
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 
-import com.salesforce.spearhead.evalon.Settings
-import com.salesforce.spearhead.evalon.llm.{AnthropicClient, ContentBlock, CreateMessageRequest}
+import com.salesforce.spearhead.evalon.llm.{Llm, ChatMessage}
 import com.salesforce.spearhead.evalon.model.{Event, EventSourceConfig, TranscriptEntry}
 
 /** Event source actor — observes simulation traffic and emits derived events.
@@ -43,9 +42,9 @@ object EventSourceActor:
 
   def apply(
     config: EventSourceConfig,
-    client: AnthropicClient,
+    llm: Llm,
     runner: ActorRef[ScenarioRunner.Command],
-  ): Behavior[Command] = simulated(config, client, runner, Vector.empty)
+  ): Behavior[Command] = simulated(config, llm, runner, Vector.empty)
 
   private val systemPromptTemplate: String =
     """You are a simulated event source in a scenario simulation.
@@ -63,7 +62,7 @@ Only emit events when clearly warranted by observed activity. Do not emit events
 
   private def simulated(
     config: EventSourceConfig,
-    client: AnthropicClient,
+    llm: Llm,
     runner: ActorRef[ScenarioRunner.Command],
     observedEntries: Vector[TranscriptEntry],
   ): Behavior[Command] = Behaviors.receive { (context, message) =>
@@ -86,19 +85,10 @@ Only emit events when clearly warranted by observed activity. Do not emit events
               .orElse(e.event.map(ev => s"[event: ${ev.name}] ${ev.data.asJson.noSpaces}"))
           }.mkString("\n")
 
-          val request = CreateMessageRequest(
-            model = Settings.defaultModel,
-            maxTokens = 512,
-            system = systemPrompt,
-            messages = List(Json.obj(
-              "role" -> "user".asJson,
-              "content" -> s"Activity so far:\n$activityLog\n\nShould any events be emitted?".asJson,
-            )),
-          )
-
-          context.pipeToSelf(client.createMessage(request)) {
+          val userPrompt = s"Activity so far:\n$activityLog\n\nShould any events be emitted?"
+          context.pipeToSelf(llm.completeAsync(systemPrompt, List(ChatMessage.user(userPrompt)))) {
             case Success(response) =>
-              val text = response.content.collectFirst { case ContentBlock.TextBlock(t) => t }.getOrElse("[]")
+              val text = Option(response).filter(_.nonEmpty).getOrElse("[]")
               val events = parse(text).flatMap(_.as[List[Json]]).getOrElse(Nil).flatMap { j =>
                 for
                   name <- j.hcursor.downField("name").as[String].toOption
@@ -110,8 +100,8 @@ Only emit events when clearly warranted by observed activity. Do not emit events
               context.log.warn("Event source LLM call failed: {}", e.getMessage)
               EmissionResult(Nil)
           }
-          simulated(config, client, runner, updated)
-        else simulated(config, client, runner, updated)
+          simulated(config, llm, runner, updated)
+        else simulated(config, llm, runner, updated)
 
       case EmissionResult(events) =>
         if events.nonEmpty then

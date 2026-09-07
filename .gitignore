@@ -17,6 +17,9 @@ project/project/
 .metals/
 project/metals.sbt
 
+# Scala CLI (created next to sources when Metals/scala-cli type-checks files)
+.scala-build/
+
 # Environment secrets
 .env
 

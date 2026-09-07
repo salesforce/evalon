@@ -22,7 +22,7 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
 import com.salesforce.spearhead.evalon.agent.Agent
-import com.salesforce.spearhead.evalon.llm.AnthropicClient
+import com.salesforce.spearhead.evalon.llm.Llm
 import com.salesforce.spearhead.evalon.model.*
 
 /**
@@ -70,8 +70,9 @@ object ScenarioRunner:
   def apply(
       scenario: Scenario,
       agent: Agent,
-      client: AnthropicClient,
-      onEntry: Option[TranscriptEntry => Unit] = None
+      llm: Llm,
+      onEntry: Option[TranscriptEntry => Unit] = None,
+      zeroThinkingDelay: Boolean = false
   ): Behavior[Command] = Behaviors.receive {
     case (ctx, Run(replyTo)) =>
       // Identify the evaluated participant
@@ -98,7 +99,7 @@ object ScenarioRunner:
           )
         case (name, config) =>
           name -> ctx.spawn(
-            SimulatedParticipant(config, client, ctx.self, conversations),
+            SimulatedParticipant(config, llm, ctx.self, conversations, zeroThinkingDelay),
             s"participant-$name"
           )
       }
@@ -106,7 +107,7 @@ object ScenarioRunner:
       // Spawn event source actors
       val eventSources = scenario.eventSources.map { esConfig =>
         esConfig.name -> ctx.spawn(
-          EventSourceActor(esConfig, client, ctx.self),
+          EventSourceActor(esConfig, llm, ctx.self),
           s"event-source-${esConfig.name}"
         )
       }.toMap

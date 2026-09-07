@@ -17,26 +17,17 @@
 
 package com.salesforce.spearhead.evalon
 
-import java.nio.file.Path
+import java.net.http.HttpClient
+import java.nio.file.{Path, Paths}
 
-import scala.concurrent.duration.*
-import scala.concurrent.{Await, ExecutionContext}
+import scala.concurrent.ExecutionContext
 
-import org.apache.pekko.actor.typed.ActorSystem
-import org.apache.pekko.actor.typed.scaladsl.AskPattern.*
-import org.apache.pekko.util.Timeout
-
-import com.salesforce.spearhead.evalon.actor.ScenarioRunner
 import com.salesforce.spearhead.evalon.agent.{Agent, ClaudeAgent, RemoteAgent}
-import com.salesforce.spearhead.evalon.eval.Evaluator
 import com.salesforce.spearhead.evalon.llm.AnthropicClient
-import com.salesforce.spearhead.evalon.model.*
-import com.salesforce.spearhead.evalon.output.TranscriptPrinter
+import com.salesforce.spearhead.evalon.model.{ParticipantType, Signals}
+import com.salesforce.spearhead.evalon.output.{DatasetWriter, TranscriptPrinter}
 import com.salesforce.spearhead.evalon.scenario.ScenarioLoader
 import com.salesforce.spearhead.evalon.tool.ToolRegistry
-import java.net.http.HttpClient
-import java.nio.file.Paths
-import com.salesforce.spearhead.evalon.output.DatasetWriter
 
 object Main:
 
@@ -67,7 +58,7 @@ If you have no useful information, recommendations, or actions to contribute, re
 
     val scenario = ScenarioLoader.load(scenarioPath) match
       case Right(s) => s
-      case Left(e) => throw RuntimeException(s"Failed to load scenario: $e")
+      case Left(e)  => throw RuntimeException(s"Failed to load scenario: $e")
 
     println(s"Running scenario: ${scenario.name}")
     println(s"Conversations: ${scenario.conversations.map(_.name)}")
@@ -75,7 +66,6 @@ If you have no useful information, recommendations, or actions to contribute, re
     println()
 
     given ExecutionContext = ExecutionContext.global
-    given Timeout = Timeout(10.minutes)
 
     val client = AnthropicClient.create()
     val tools = ToolRegistry.build(scenario.context)
@@ -101,26 +91,13 @@ If you have no useful information, recommendations, or actions to contribute, re
 
     val showConv = scenario.conversations.size > 1
     val printer = TranscriptPrinter(showConversation = showConv)
+    val options = EvalonRunOptions().withOnEntryFn(printer.apply)
 
-    given system: ActorSystem[ScenarioRunner.Command] = ActorSystem(
-      ScenarioRunner(scenario, agent, client, onEntry = Some(printer.apply)),
-      "evalon"
-    )
+    println("=== Transcript ===\n")
+    val result = EvalonRunner.run(scenario, agent, client, options)
+    TranscriptPrinter.printEval(result.scalaEvalResult)
 
-    try
-      println("=== Transcript ===\n")
-      val simulationFuture =
-        system.ask[ScenarioRunner.SimulationResult](ref => ScenarioRunner.Run(ref))
-
-      val result = Await.result(simulationFuture, 10.minutes)
-
-      val evaluator = Evaluator(client)
-      val evalResult = Await.result(evaluator.evaluate(scenario, result.transcript), 5.minutes)
-
-      TranscriptPrinter.printEval(evalResult)
-
-      // Save transcript to disk (under target/ so it is treated as build output)
-      val outputDir = Paths.get("target", "evalon-runs")
-      val savedPath = DatasetWriter.saveDatasetEntry(scenario, result.transcript, evalResult, outputDir)
-      println(s"\n✓ Transcript saved to: $savedPath")
-    finally system.terminate()
+    val outputDir = Paths.get("target", "evalon-runs")
+    val savedPath =
+      DatasetWriter.saveDatasetEntry(scenario, result.scalaTranscript, result.scalaEvalResult, outputDir)
+    println(s"\n✓ Transcript saved to: $savedPath")
