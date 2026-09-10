@@ -323,7 +323,7 @@ Respond with only your message content. Your output is delivered to the other pa
             if remaining.nonEmpty then ResponseKind.Text(remaining)
             else ResponseKind.Silent
           case Some(t) => ResponseKind.Text(t)
-          case None    => ResponseKind.Silent
+          case None => ResponseKind.Silent
         LlmResult(conversation, kind)
       case Failure(e) =>
         ctx.log.error("LLM call failed for participant {}", setup.config.name, e)
