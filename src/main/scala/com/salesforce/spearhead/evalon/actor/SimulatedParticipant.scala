@@ -50,8 +50,7 @@ object SimulatedParticipant:
       config: ParticipantConfig,
       llm: Llm,
       runner: ActorRef[ScenarioRunner.Command],
-      conversations: Map[String, ConversationConfig],
-      zeroThinkingDelay: Boolean
+      conversations: Map[String, ConversationConfig]
   )
 
   // Internal command (LLM results come back via pipeToSelf)
@@ -119,20 +118,17 @@ Respond with only your message content. Your output is delivered to the other pa
       config: ParticipantConfig,
       llm: Llm,
       runner: ActorRef[ScenarioRunner.Command],
-      conversations: Map[String, ConversationConfig] = Map.empty,
-      zeroThinkingDelay: Boolean = false
+      conversations: Map[String, ConversationConfig] = Map.empty
   ): Behavior[Cmd] =
-    val setup = Setup(config, llm, runner, conversations, zeroThinkingDelay)
+    val setup = Setup(config, llm, runner, conversations)
     Behaviors.withTimers(timers => idle(setup, Map.empty, timers))
 
   private def thinkingDelay(setup: Setup): FiniteDuration =
-    if setup.zeroThinkingDelay then 0.millis
-    else
-      setup.config.responseSpeed match
-        case Some(ResponseSpeed.Fast)   => (2000 + Random.nextInt(1000)).millis
-        case Some(ResponseSpeed.Medium) => (5000 + Random.nextInt(1000)).millis
-        case Some(ResponseSpeed.Slow)   => (8000 + Random.nextInt(2000)).millis
-        case None                       => 0.millis
+    setup.config.responseSpeed match
+      case Some(ResponseSpeed.Fast)   => (2000 + Random.nextInt(1000)).millis
+      case Some(ResponseSpeed.Medium) => (5000 + Random.nextInt(1000)).millis
+      case Some(ResponseSpeed.Slow)   => (8000 + Random.nextInt(2000)).millis
+      case None                       => 0.millis
 
   /** Idle state — waiting for messages. */
   private def idle(

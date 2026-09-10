@@ -26,7 +26,7 @@ import com.salesforce.spearhead.evalon.llm.Llm
 import com.salesforce.spearhead.evalon.model.*
 
 /**
- * The ScenarioRunner orchestrates a simulation as an actor system.
+ * The ScenarioRunner orchestrates a simulation as an actor.
  *
  * Each participant is self-driven: they generate responses when messages arrive. The runner
  * delivers messages to direct participants (those in the conversation's `between` list), records
@@ -71,8 +71,7 @@ object ScenarioRunner:
       scenario: Scenario,
       agent: Agent,
       llm: Llm,
-      onEntry: Option[TranscriptEntry => Unit] = None,
-      zeroThinkingDelay: Boolean = false
+      onEntry: Option[TranscriptEntry => Unit] = None
   ): Behavior[Command] = Behaviors.receive {
     case (ctx, Run(replyTo)) =>
       // Identify the evaluated participant
@@ -99,7 +98,7 @@ object ScenarioRunner:
           )
         case (name, config) =>
           name -> ctx.spawn(
-            SimulatedParticipant(config, llm, ctx.self, conversations, zeroThinkingDelay),
+            SimulatedParticipant(config, llm, ctx.self, conversations),
             s"participant-$name"
           )
       }

@@ -18,13 +18,13 @@
 package com.salesforce.spearhead.evalon
 
 import java.nio.file.Path
-import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 
 import scala.concurrent.duration.*
-import scala.concurrent.{Await, ExecutionContext}
+import scala.concurrent.Await
 import scala.jdk.DurationConverters.*
 
-import org.apache.pekko.actor.typed.ActorSystem
+import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Props, SpawnProtocol}
 import org.apache.pekko.actor.typed.scaladsl.AskPattern.*
 import org.apache.pekko.util.Timeout
 
@@ -35,8 +35,16 @@ import com.salesforce.spearhead.evalon.llm.Llm
 import com.salesforce.spearhead.evalon.model.{ParticipantType, Scenario}
 import com.salesforce.spearhead.evalon.scenario.ScenarioLoader
 
-/** Blocking Java-callable entry point: load a scenario, run Pekko simulation, judge, shut down. */
+/** Blocking Java-callable entry point: load a scenario, run Pekko simulation, judge.
+  *
+  * Uses one shared {@code ActorSystem}. Each {@link #run} spawns a {@code ScenarioRunner} child.
+  * Call {@link #shutdown} when the host process is finished so the JVM can exit.
+  */
 object EvalonRunner:
+
+  private val lock = new AnyRef
+  private val runSeq = new AtomicLong()
+  private var instance: Option[ActorSystem[SpawnProtocol.Command]] = None
 
   def run(scenarioPath: Path, agent: Agent, llm: Llm): EvalonResult =
     run(scenarioPath, agent, llm, EvalonRunOptions())
@@ -54,37 +62,65 @@ object EvalonRunner:
       options: EvalonRunOptions
   ): EvalonResult =
     val scenario = loadScenario(scenarioPath)
-    given ExecutionContext = ExecutionContext.global
     val agentName = evaluatedName(scenario)
-    run(scenario, SimpleAgent.toAgent(agent, agentName), llm, options)
+    val agentImpl = SimpleAgent.toAgent(agent, agentName)(using options.executionContext)
+    run(scenario, agentImpl, llm, options)
+
+  def run(scenario: Scenario, agent: SimpleAgent, llm: Llm, options: EvalonRunOptions): EvalonResult =
+    val agentName = evaluatedName(scenario)
+    val agentImpl = SimpleAgent.toAgent(agent, agentName)(using options.executionContext)
+    run(scenario, agentImpl, llm, options)
 
   def run(scenario: Scenario, agent: Agent, llm: Llm, options: EvalonRunOptions): EvalonResult =
-    given ExecutionContext = ExecutionContext.global
-    given Timeout = Timeout(options.getSimulationTimeout.toScala)
+    val ec = options.executionContext
+    val timeout = Timeout(options.getSimulationTimeout.toScala)
+    val system = actorSystem
+    val runName = s"run-${runSeq.incrementAndGet()}"
 
-    given system: ActorSystem[ScenarioRunner.Command] = ActorSystem(
-      ScenarioRunner(
-        scenario,
-        agent,
-        llm,
-        onEntry = options.onEntryFn,
-        zeroThinkingDelay = options.isZeroThinkingDelay
-      ),
-      s"evalon-${UUID.randomUUID()}"
+    val runner = Await.result(
+      system.ask[ActorRef[ScenarioRunner.Command]] { replyTo =>
+        SpawnProtocol.Spawn(
+          ScenarioRunner(scenario, agent, llm, options.onEntryFn),
+          runName,
+          Props.empty,
+          replyTo
+        )
+      }(using timeout, system.scheduler),
+      options.getSimulationTimeout.toScala
     )
 
-    try
-      val simulationFuture =
-        system.ask[ScenarioRunner.SimulationResult](ref => ScenarioRunner.Run(ref))
-      val simulation = Await.result(simulationFuture, options.getSimulationTimeout.toScala)
-      val evalResult = Await.result(
-        Evaluator(llm).evaluate(scenario, simulation.transcript),
-        options.getJudgeTimeout.toScala
-      )
-      EvalonResult.from(evalResult, simulation.transcript)
-    finally
-      system.terminate()
-      Await.ready(system.whenTerminated, 30.seconds)
+    val simulation = Await.result(
+      runner.ask[ScenarioRunner.SimulationResult](ref => ScenarioRunner.Run(ref))(
+        using timeout,
+        system.scheduler
+      ),
+      options.getSimulationTimeout.toScala
+    )
+    val evalResult = Await.result(
+      Evaluator(llm)(using ec).evaluate(scenario, simulation.transcript),
+      options.getJudgeTimeout.toScala
+    )
+    EvalonResult.from(evalResult, simulation.transcript)
+
+  /** Stop the shared actor system. Safe to call more than once. */
+  def shutdown(): Unit =
+    lock.synchronized {
+      instance.foreach { sys =>
+        sys.terminate()
+        Await.ready(sys.whenTerminated, 30.seconds)
+      }
+      instance = None
+    }
+
+  private def actorSystem: ActorSystem[SpawnProtocol.Command] =
+    lock.synchronized {
+      instance.filter(sys => !sys.whenTerminated.isCompleted) match
+        case Some(sys) => sys
+        case None =>
+          val created = ActorSystem(SpawnProtocol(), "evalon")
+          instance = Some(created)
+          created
+    }
 
   private def loadScenario(path: Path): Scenario =
     ScenarioLoader.load(path) match

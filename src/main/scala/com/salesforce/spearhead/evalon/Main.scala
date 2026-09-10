@@ -58,7 +58,7 @@ If you have no useful information, recommendations, or actions to contribute, re
 
     val scenario = ScenarioLoader.load(scenarioPath) match
       case Right(s) => s
-      case Left(e)  => throw RuntimeException(s"Failed to load scenario: $e")
+      case Left(e) => throw RuntimeException(s"Failed to load scenario: $e")
 
     println(s"Running scenario: ${scenario.name}")
     println(s"Conversations: ${scenario.conversations.map(_.name)}")
@@ -94,10 +94,12 @@ If you have no useful information, recommendations, or actions to contribute, re
     val options = EvalonRunOptions().withOnEntryFn(printer.apply)
 
     println("=== Transcript ===\n")
-    val result = EvalonRunner.run(scenario, agent, client, options)
-    TranscriptPrinter.printEval(result.scalaEvalResult)
+    try
+      val result = EvalonRunner.run(scenario, agent, client, options)
+      TranscriptPrinter.printEval(result.scalaEvalResult)
 
-    val outputDir = Paths.get("target", "evalon-runs")
-    val savedPath =
-      DatasetWriter.saveDatasetEntry(scenario, result.scalaTranscript, result.scalaEvalResult, outputDir)
-    println(s"\n✓ Transcript saved to: $savedPath")
+      val outputDir = Paths.get("target", "evalon-runs")
+      val savedPath =
+        DatasetWriter.saveDatasetEntry(scenario, result.scalaTranscript, result.scalaEvalResult, outputDir)
+      println(s"\n✓ Transcript saved to: $savedPath")
+    finally EvalonRunner.shutdown()

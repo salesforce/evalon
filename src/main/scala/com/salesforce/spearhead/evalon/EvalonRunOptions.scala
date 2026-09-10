@@ -18,22 +18,19 @@
 package com.salesforce.spearhead.evalon
 
 import java.time.Duration
+import java.util.concurrent.Executor
 import java.util.function.Consumer
+
+import scala.concurrent.ExecutionContext
 
 import com.salesforce.spearhead.evalon.model.{Message, TranscriptEntry}
 
 /** Mutable, Java-friendly options for {@link EvalonRunner}. */
 final class EvalonRunOptions:
-  private var zeroThinkingDelay: Boolean = false
   private var onEntry: Option[TranscriptEntry => Unit] = None
   private var simulationTimeout: Duration = Duration.ofMinutes(10)
   private var judgeTimeout: Duration = Duration.ofMinutes(5)
-
-  def withZeroThinkingDelay(value: Boolean): EvalonRunOptions =
-    zeroThinkingDelay = value
-    this
-
-  def isZeroThinkingDelay: Boolean = zeroThinkingDelay
+  private var executor: Option[Executor] = None
 
   def withOnEntry(consumer: Consumer[TranscriptEntry]): EvalonRunOptions =
     withOnEntryFn(entry => consumer.accept(entry))
@@ -67,4 +64,12 @@ final class EvalonRunOptions:
 
   def getJudgeTimeout: Duration = judgeTimeout
 
+  /** Optional thread pool for simulation Futures. Defaults to {@code ExecutionContext.global}. */
+  def withExecutor(executor: Executor): EvalonRunOptions =
+    this.executor = Option(executor)
+    this
+
   private[evalon] def onEntryFn: Option[TranscriptEntry => Unit] = onEntry
+
+  private[evalon] def executionContext: ExecutionContext =
+    executor.map(ExecutionContext.fromExecutor).getOrElse(ExecutionContext.global)
