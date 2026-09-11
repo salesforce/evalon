@@ -20,6 +20,9 @@ package com.salesforce.spearhead.evalon
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
 
+import scala.concurrent.Await
+import scala.concurrent.duration.*
+
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -29,9 +32,14 @@ import com.salesforce.spearhead.evalon.model.*
 
 class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
 
-  override def afterAll(): Unit = EvalonRunner.shutdown()
+  private val system = EvalonRunner.newSystem("evalon-test")
+  private val evalon = EvalonRunner(system)
 
-  test("sequential runs share one actor system") {
+  override def afterAll(): Unit =
+    system.terminate()
+    Await.ready(system.whenTerminated, 30.seconds)
+
+  test("sequential runs reuse one caller-owned actor system") {
     val llm: Llm = prompt =>
       val text =
         if prompt.contains("expert evaluator") then
@@ -44,8 +52,8 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
       .withSimulationTimeout(Duration.ofSeconds(15))
       .withJudgeTimeout(Duration.ofSeconds(5))
 
-    val first = EvalonRunner.run(scenario("one"), agent, llm, options)
-    val second = EvalonRunner.run(scenario("two"), agent, llm, options)
+    val first = evalon.runSimple(scenario("one"), agent, llm, options)
+    val second = evalon.runSimple(scenario("two"), agent, llm, options)
 
     assert(first.getScenarioName == "one")
     assert(second.getScenarioName == "two")

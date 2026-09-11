@@ -20,7 +20,8 @@ package com.salesforce.spearhead.evalon
 import java.net.http.HttpClient
 import java.nio.file.{Path, Paths}
 
-import scala.concurrent.ExecutionContext
+import scala.concurrent.duration.*
+import scala.concurrent.{Await, ExecutionContext}
 
 import com.salesforce.spearhead.evalon.agent.{Agent, ClaudeAgent, RemoteAgent}
 import com.salesforce.spearhead.evalon.llm.AnthropicClient
@@ -94,12 +95,15 @@ If you have no useful information, recommendations, or actions to contribute, re
     val options = EvalonRunOptions().withOnEntryFn(printer.apply)
 
     println("=== Transcript ===\n")
+    val system = EvalonRunner.newSystem()
     try
-      val result = EvalonRunner.run(scenario, agent, client, options)
+      val result = EvalonRunner(system).run(scenario, agent, client, options)
       TranscriptPrinter.printEval(result.scalaEvalResult)
 
       val outputDir = Paths.get("target", "evalon-runs")
       val savedPath =
         DatasetWriter.saveDatasetEntry(scenario, result.scalaTranscript, result.scalaEvalResult, outputDir)
       println(s"\n✓ Transcript saved to: $savedPath")
-    finally EvalonRunner.shutdown()
+    finally
+      system.terminate()
+      Await.ready(system.whenTerminated, 30.seconds)

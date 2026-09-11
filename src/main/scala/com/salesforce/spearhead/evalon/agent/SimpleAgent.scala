@@ -23,6 +23,7 @@ import java.util.concurrent.CompletionStage
 import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters.*
 import scala.jdk.FutureConverters.*
+import scala.util.{Failure, Success, Try}
 
 import io.circe.syntax.*
 
@@ -46,9 +47,9 @@ final class AgentReply(private val content: String, private val end: Boolean):
 object AgentReply:
   def send(content: String): AgentReply = AgentReply(content, false)
   def end(): AgentReply = AgentReply("", true)
-  def endAfter(content: String): AgentReply = AgentReply(content, true)
 
-/** Simplified evaluated agent: history turns + optional event lines, no tool trace. */
+/** Simplified evaluated agent: history turns + optional event lines */
+// TODO: add tool trace
 @FunctionalInterface
 trait SimpleAgent:
   def step(
@@ -69,7 +70,14 @@ object SimpleAgent:
           .collect { case HistoryEntry.Turn(c, s, content) => HistoryTurn(c, s, content) }
           .asJava
         val eventLines = events.map(e => s"${e.name}: ${e.data.asJson.noSpaces}").asJava
-        simpleAgent.step(respondIn, turns, eventLines).asScala.map { reply =>
-          if reply == null || reply.isEnd then Action.End
-          else Action.send(agentName, Option(reply.getContent).getOrElse(""))
-        }
+        Try(simpleAgent.step(respondIn, turns, eventLines)) match
+          case Success(null) =>
+            Future.failed(
+              NullPointerException("SimpleAgent.step must return a non-null CompletionStage")
+            )
+          case Success(stage) =>
+            stage.asScala.map { reply =>
+              if reply == null || reply.isEnd then Action.End
+              else Action.send(agentName, Option(reply.getContent).getOrElse(""))
+            }
+          case Failure(e) => Future.failed(e)
