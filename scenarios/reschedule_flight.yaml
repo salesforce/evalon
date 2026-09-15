@@ -13,46 +13,78 @@ participants:
     goal: >
       Get rebooked on the next available flight from JFK to SFO.
       You want confirmation of the new flight details.
+    context_facts:
+      passenger_name: Jane Doe
+      flight_number: AA123
+      origin: JFK
+      destination: SFO
+      booking_ref: BK-5678
+      reason: delayed_flight_important_meeting
 
   agent:
     type: evaluated
     # endpoint: http://localhost:8080
+    context_facts:
+      passenger_name: Jane Doe
+      flight_number: AA123
+      origin: JFK
+      destination: SFO
+      booking_ref: BK-5678
+      flights:
+        AA123:
+          flight_number: AA123
+          origin: JFK
+          destination: SFO
+          status: delayed
+          departure: "2026-03-23T14:00:00"
+          passenger: Jane Doe
+          booking_ref: BK-5678
+        AA456:
+          flight_number: AA456
+          origin: JFK
+          destination: SFO
+          status: on_time
+          departure: "2026-03-23T18:00:00"
+          seats_available: 12
+        AA789:
+          flight_number: AA789
+          origin: JFK
+          destination: SFO
+          status: on_time
+          departure: "2026-03-24T08:00:00"
+          seats_available: 45
 
 conversations:
   - name: support_chat
     between: [end_user, agent]
     initiated_by: end_user
 
-context:
-  flights:
-    AA123:
-      flight_number: AA123
-      origin: JFK
-      destination: SFO
-      status: delayed
-      departure: "2026-03-23T14:00:00"
-      passenger: Jane Doe
-      booking_ref: BK-5678
-    AA456:
-      flight_number: AA456
-      origin: JFK
-      destination: SFO
-      status: on_time
-      departure: "2026-03-23T18:00:00"
-      seats_available: 12
-    AA789:
-      flight_number: AA789
-      origin: JFK
-      destination: SFO
-      status: on_time
-      departure: "2026-03-24T08:00:00"
-      seats_available: 45
-
 max_turns: 10
 
 eval_criteria:
-  - description: "Agent looked up the customer's current flight status"
-  - description: "Agent searched for available alternative flights"
-  - description: "Agent successfully rebooked the customer on a new flight"
-  - description: "Agent confirmed the new flight details with the customer"
-  - description: "Agent was empathetic and professional in tone"
+  - name: lookup_flight_status
+    description: "Agent looked up the customer's current flight status"
+    criterion_type: binary
+    require_tool_call: true
+    tags: [tools]
+  - name: search_alternatives
+    description: "Agent searched for available alternative flights"
+    criterion_type: binary
+    require_tool_call: true
+    tags: [tools]
+  - name: rebook_flight
+    description: "Agent successfully rebooked the customer on a new flight"
+    criterion_type: binary
+    require_tool_call: true
+    tags: [tools]
+    weight: 2.0
+  - name: confirm_new_flight
+    description: "Agent confirmed the new flight details with the customer"
+    criterion_type: binary
+    require_tool_call: false
+  - name: professional_tone
+    description: "Agent was empathetic and professional in tone"
+    criterion_type: scored
+    require_tool_call: false
+    pass_threshold: 0.7
+    tags: [tone]

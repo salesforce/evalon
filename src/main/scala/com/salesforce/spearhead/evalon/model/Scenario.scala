@@ -25,11 +25,18 @@ enum ParticipantType:
 enum ResponseSpeed:
   case Fast, Medium, Slow
 
+enum CriterionType:
+  case Binary, Scored, Ordinal
+
+enum CriterionSourceType:
+  case History, OpProcedure, Hybrid, Manual
+
 case class ParticipantConfig(
   name: String,
   participantType: ParticipantType = ParticipantType.Simulated,
   persona: String = "",
   goal: String = "",
+  contextFacts: Json = Json.obj(),
   endpoint: Option[String] = None,
   responseSpeed: Option[ResponseSpeed] = None,
 )
@@ -59,7 +66,12 @@ case class EventSourceConfig(
 )
 
 case class EvalCriterion(
+  name: String,
   description: String,
+  criterionType: CriterionType,
+  requireToolCall: Boolean,
+  passThreshold: Option[Double] = None,
+  tags: List[String] = Nil,
   weight: Double = 1.0,
 )
 
@@ -72,5 +84,6 @@ case class Scenario(
   eventSources: List[EventSourceConfig] = Nil,
   context: Json = Json.obj(),
   evalCriteria: List[EvalCriterion] = Nil,
+  evalPromptTemplate: Option[String] = None,
   maxTurns: Int = 20,
 )

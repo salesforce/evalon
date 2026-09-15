@@ -17,6 +17,14 @@ participants:
     goal: >
       Cancel your hotel reservation and get the best refund possible.
       You want clear confirmation that the cancellation is processed.
+    context_facts:
+      guest_name: Mark Johnson
+      hotel: The Grand Hotel
+      city: Chicago
+      check_in: "2026-03-28"
+      check_out: "2026-03-30"
+      booking_ref: HTL-9012
+      reason: cancelled_business_trip
 
   representative:
     type: simulated
@@ -35,9 +43,35 @@ participants:
     goal: >
       Help the customer cancel their reservation and process the appropriate
       refund based on the agent's guidance and policy recommendations.
+    context_facts:
+      name: Sarah
+      role: hotel_support_representative
+      tenure_months: 2
 
   agent:
     type: evaluated
+    context_facts:
+      guest_name: Mark Johnson
+      hotel: The Grand Hotel
+      city: Chicago
+      check_in: "2026-03-28"
+      check_out: "2026-03-30"
+      booking_ref: HTL-9012
+      bookings:
+        HTL-9012:
+          booking_ref: HTL-9012
+          guest_name: Mark Johnson
+          hotel: The Grand Hotel
+          city: Chicago
+          check_in: "2026-03-28"
+          check_out: "2026-03-30"
+          nights: 2
+          rate_per_night: 250.00
+          total: 500.00
+          status: confirmed
+          payment_method: corporate_card
+          cancellation_policy: free_cancellation_until_24h_before_checkin
+          cancellation_deadline: "2026-03-27T14:00:00"
 
 conversations:
   - name: support_chat
@@ -51,28 +85,32 @@ observations:
   - participant: agent
     observes: [support_chat]
 
-context:
-  bookings:
-    HTL-9012:
-      booking_ref: HTL-9012
-      guest_name: Mark Johnson
-      hotel: The Grand Hotel
-      city: Chicago
-      check_in: "2026-03-28"
-      check_out: "2026-03-30"
-      nights: 2
-      rate_per_night: 250.00
-      total: 500.00
-      status: confirmed
-      payment_method: corporate_card
-      cancellation_policy: free_cancellation_until_24h_before_checkin
-      cancellation_deadline: "2026-03-27T14:00:00"
-
 max_turns: 20
 
 eval_criteria:
-  - description: "Agent looked up the booking details proactively"
-  - description: "Agent provided clear guidance to the representative about cancellation policy"
-  - description: "Agent performed the cancellation via tool call when appropriate"
-  - description: "Representative followed the agent's guidance naturally without revealing the agent to the customer"
-  - description: "Customer's cancellation was successfully processed with refund details"
+  - name: lookup_booking
+    description: "Agent looked up the booking details proactively"
+    criterion_type: binary
+    require_tool_call: true
+    tags: [tools]
+  - name: guide_cancellation_policy
+    description: "Agent provided clear guidance to the representative about cancellation policy"
+    criterion_type: binary
+    require_tool_call: false
+    tags: [assist]
+  - name: cancel_via_tool
+    description: "Agent performed the cancellation via tool call when appropriate"
+    criterion_type: binary
+    require_tool_call: true
+    tags: [tools]
+    weight: 2.0
+  - name: rep_follows_without_reveal
+    description: "Representative followed the agent's guidance naturally without revealing the agent to the customer"
+    criterion_type: binary
+    require_tool_call: false
+    tags: [assist]
+  - name: cancellation_processed
+    description: "Customer's cancellation was successfully processed with refund details"
+    criterion_type: binary
+    require_tool_call: false
+    weight: 2.0

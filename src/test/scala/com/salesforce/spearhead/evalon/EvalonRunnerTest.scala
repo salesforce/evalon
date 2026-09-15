@@ -72,5 +72,12 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
       conversations = List(
         ConversationConfig("chat", List("end_user", "agent"), initiatedBy = Some("end_user"))
       ),
-      evalCriteria = List(EvalCriterion("ok", 1.0))
+      evalCriteria = List(
+        EvalCriterion(
+          name = "ok",
+          description = "ok",
+          criterionType = CriterionType.Binary,
+          requireToolCall = false
+        )
+      )
     )

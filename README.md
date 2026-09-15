@@ -150,11 +150,21 @@ participants:
     type: simulated
     persona: You are Jane Doe, a frustrated customer...
     goal: Get rebooked on the next available flight.
+    context_facts:
+      passenger_name: Jane Doe
+      flight_number: AA123
+      booking_ref: BK-5678
   agent:
     type: evaluated
     # Optional: point at an HTTP server speaking the remote-agent protocol (see
     # examples/remote_agent_python/server.py). Without this, evaluation uses ClaudeAgent.
     # endpoint: http://localhost:8080
+    context_facts:
+      passenger_name: Jane Doe
+      flight_number: AA123
+      booking_ref: BK-5678
+      flights:
+        AA123: { flight_number: AA123, status: delayed, ... }
 
 conversations:
   - name: support_chat
@@ -172,10 +182,6 @@ event_sources:
     emits:
       - event: case_created
         schema: { case_id: string, priority: string }
-
-context:
-  flights:
-    AA123: { flight_number: AA123, status: delayed, ... }
 
 max_turns: 10
 

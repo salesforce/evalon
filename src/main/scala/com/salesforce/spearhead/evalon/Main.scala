@@ -69,7 +69,10 @@ If you have no useful information, recommendations, or actions to contribute, re
     given ExecutionContext = ExecutionContext.global
 
     val client = AnthropicClient.create()
-    val tools = ToolRegistry.build(scenario.context)
+    val agentFacts = scenario.participants.collectFirst {
+      case (_, p) if p.participantType == ParticipantType.Evaluated => p.contextFacts
+    }.getOrElse(scenario.context)
+    val tools = ToolRegistry.build(agentFacts)
     val hasObservers = scenario.observations.nonEmpty
     val systemPrompt = if hasObservers then assistSystemPrompt else directSystemPrompt
 

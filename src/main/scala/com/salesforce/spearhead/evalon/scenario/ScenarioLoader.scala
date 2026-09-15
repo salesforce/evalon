@@ -46,6 +46,7 @@ object ScenarioLoader:
       eventSources <- decodeEventSources(c.downField("event_sources"))
       context = c.downField("context").focus.getOrElse(Json.obj())
       evalCriteria <- decodeEvalCriteria(c.downField("eval_criteria"))
+      evalPromptTemplate = c.downField("eval_prompt_template").as[String].toOption
       maxTurns = c.downField("max_turns").as[Int].getOrElse(20)
     yield Scenario(
       name = name,
@@ -56,6 +57,7 @@ object ScenarioLoader:
       eventSources = eventSources,
       context = context,
       evalCriteria = evalCriteria,
+      evalPromptTemplate = evalPromptTemplate,
       maxTurns = maxTurns,
     )
 
@@ -88,6 +90,7 @@ object ScenarioLoader:
                   participantType = pType,
                   persona = c.downField("persona").as[String].getOrElse(""),
                   goal = c.downField("goal").as[String].getOrElse(""),
+                  contextFacts = c.downField("context_facts").focus.getOrElse(Json.obj()),
                   endpoint = c.downField("endpoint").as[String].toOption,
                   responseSpeed = responseSpeed,
                 )
@@ -157,15 +160,44 @@ object ScenarioLoader:
     cursor.focus match
       case None => Right(Nil)
       case Some(json) =>
-        json.as[List[Json]].left.map(_.getMessage).map { list =>
-          list.map { j =>
-            j.asString match
-              case Some(desc) => EvalCriterion(desc)
-              case None =>
-                val c = j.hcursor
-                EvalCriterion(
-                  description = c.downField("description").as[String].getOrElse(""),
-                  weight = c.downField("weight").as[Double].getOrElse(1.0),
-                )
+        json.as[List[Json]].left.map(_.getMessage).flatMap { list =>
+          list.foldLeft(Right(Nil): Either[String, List[EvalCriterion]]) { (acc, j) =>
+            acc.flatMap(cs => decodeEvalCriterion(j).map(cs :+ _))
           }
         }
+
+  private def decodeEvalCriterion(json: Json): Either[String, EvalCriterion] =
+    json.asString match
+      case Some(desc) =>
+        Right(
+          EvalCriterion(
+            name = desc,
+            description = desc,
+            criterionType = CriterionType.Binary,
+            requireToolCall = false
+          )
+        )
+      case None =>
+        val c = json.hcursor
+        for
+          criterionType <- decodeCriterionType(c)
+        yield EvalCriterion(
+          name = c.downField("name").as[String].toOption.getOrElse(""),
+          description = c.downField("description").as[String].toOption.getOrElse(""),
+          criterionType = criterionType,
+          requireToolCall = c.downField("require_tool_call").as[Boolean].toOption.getOrElse(false),
+          passThreshold = c.downField("pass_threshold").as[Double].toOption,
+          tags = c.downField("tags").as[List[String]].toOption.getOrElse(Nil),
+          weight = c.downField("weight").as[Double].toOption.getOrElse(1.0),
+        )
+
+  private def decodeCriterionType(c: HCursor): Either[String, CriterionType] =
+    c.downField("criterion_type").as[String].toOption match
+      case None => Right(CriterionType.Binary)
+      case Some(s) =>
+        s.trim.toLowerCase match
+          case "binary"  => Right(CriterionType.Binary)
+          case "scored"  => Right(CriterionType.Scored)
+          case "ordinal" => Right(CriterionType.Ordinal)
+          case other =>
+            Left(s"Unknown criterion type '$other' (expected binary, scored, or ordinal)")

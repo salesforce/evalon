@@ -12,40 +12,65 @@ participants:
       You have a Visa ending in 4532 that you want to use. You're frustrated but polite.
     goal: >
       Get your Visa card ending in 4532 working so you can complete your purchase.
+    context_facts:
+      name: Sarah Chen
+      email: sarah.chen@example.com
+      mailing_address: "123 Market St, San Francisco, CA 94102"
+      city: San Francisco
+      state: CA
+      postal_code: "94102"
+      card_brand: Visa
+      card_last_four: "4532"
+      reason: payment_declined
 
   agent:
     type: evaluated
+    context_facts:
+      name: Sarah Chen
+      email: sarah.chen@example.com
+      mailing_address: "123 Market St, San Francisco, CA 94102"
+      state: CA
+      postal_code: "94102"
+      card_last_four: "4532"
+      contacts:
+        sarah.chen@example.com:
+          id: "CON-001"
+          email: "sarah.chen@example.com"
+          name: "Sarah Chen"
+          postal_code: "94102"
+          state: "CA"
+          mailing_address: "123 Market St, San Francisco, CA 94102"
+      payment_methods:
+        PM-001:
+          id: "PM-001"
+          contact_id: "CON-001"
+          last_four_digits: "4532"
+          status: "Inactive"
+          type: "credit_card"
+          brand: "Visa"
+          expiry_date: "2027-12-31"
+      transactions: {}
 
 conversations:
   - name: support_chat
     between: [end_user, agent]
     initiated_by: end_user
 
-context:
-  contacts:
-    sarah.chen@example.com:
-      id: "CON-001"
-      email: "sarah.chen@example.com"
-      name: "Sarah Chen"
-      postal_code: "94102"
-      state: "CA"
-      mailing_address: "123 Market St, San Francisco, CA 94102"
-
-  payment_methods:
-    PM-001:
-      id: "PM-001"
-      contact_id: "CON-001"
-      last_four_digits: "4532"
-      status: "Inactive"
-      type: "credit_card"
-      brand: "Visa"
-      expiry_date: "2027-12-31"
-
-  transactions: {}
-
 max_turns: 10
 
 eval_criteria:
-  - description: "Agent verified customer identity before proceeding"
-  - description: "Agent activated the payment method"
-  - description: "Agent confirmed resolution to the customer"
+  - name: verify_identity
+    description: "Agent verified customer identity before proceeding"
+    criterion_type: binary
+    require_tool_call: true
+    tags: [tools, identity]
+  - name: activate_payment_method
+    description: "Agent activated the payment method"
+    criterion_type: binary
+    require_tool_call: true
+    tags: [tools]
+    weight: 2.0
+  - name: confirm_resolution
+    description: "Agent confirmed resolution to the customer"
+    criterion_type: binary
+    require_tool_call: false
