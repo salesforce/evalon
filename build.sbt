@@ -1,4 +1,4 @@
-lazy val PekkoVersion = "1.6.0"
+lazy val PekkoVersion = "1.7.0"
 lazy val SttpVersion = "4.0.26"
 
 // Publishing metadata for Maven Central (via sbt-ci-release / Central Portal).
@@ -58,7 +58,7 @@ lazy val root = (project in file("."))
       // Logging
       "org.slf4j" % "slf4j-api",
       "org.slf4j" % "slf4j-simple",
-    ).map(_ % "2.0.18") ++
+    ).map(_ % "2.0.19") ++
     Seq(
       // Pekko (actor framework)
       "org.apache.pekko" %% "pekko-actor-typed" % PekkoVersion,

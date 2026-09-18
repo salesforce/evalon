@@ -20,7 +20,7 @@ participants:
 
   representative:
     type: simulated
-    responseSpeed: medium
+    response_speed: medium
     persona: >
       You are Alex, a billing support representative. You rely on AI agent guidance
       to help you through billing disputes. When you receive agent guidance, follow

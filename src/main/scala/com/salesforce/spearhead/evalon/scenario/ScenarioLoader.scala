@@ -76,7 +76,7 @@ object ScenarioLoader:
                 case "evaluated" => ParticipantType.Evaluated
                 case "custom"    => ParticipantType.Custom
                 case _           => ParticipantType.Simulated
-              val responseSpeed = c.downField("responseSpeed").as[String].toOption.flatMap {
+              val responseSpeed = c.downField("response_speed").as[String].toOption.flatMap {
                 case "fast"   => Some(ResponseSpeed.Fast)
                 case "medium" => Some(ResponseSpeed.Medium)
                 case "slow"   => Some(ResponseSpeed.Slow)
