@@ -31,14 +31,13 @@ import com.salesforce.spearhead.evalon.model.*
 class EvaluatorTest extends AnyFunSuite:
 
   test("judge parses JSON from Llm and scores weighted criteria") {
-    val llm: Llm = _ =>
-      CompletableFuture.completedFuture("""{
-        "criteria": [
-          {"passed": true, "score": 1.0, "reasoning": "rebooked"},
-          {"passed": false, "score": 0.0, "reasoning": "missed confirmation"}
-        ],
-        "summary": "partial"
-      }""")
+    val llm: Llm = prompt =>
+      val text =
+        if prompt.contains("confirmed with the user") then
+          """{"passed": false, "score": 0.0, "reasoning": "missed confirmation"}"""
+        else
+          """{"passed": true, "score": 1.0, "reasoning": "rebooked"}"""
+      CompletableFuture.completedFuture(text)
 
     val scenario = Scenario(
       name = "rebook",
@@ -65,10 +64,11 @@ class EvaluatorTest extends AnyFunSuite:
 
     val result = Await.result(Evaluator(llm).evaluate(scenario, Transcript()), 5.seconds)
     assert(result.scenarioName == "rebook")
-    assert(result.summary == "partial")
+    assert(result.summary == "rebooked; missed confirmation")
     assert(result.criterionResults.head.passed)
     assert(!result.criterionResults(1).passed)
     assert(math.abs(result.overallScore - (1.0 * 2.0 + 0.0 * 1.0) / 3.0) < 1e-9)
+    assert(result.criterionResults.size == 2)
   }
 
   test("Llm.blocking wraps a synchronous function") {
@@ -106,4 +106,87 @@ class EvaluatorTest extends AnyFunSuite:
     )
     assert(text == "structured")
     assert(received.toList == List(("sys", List(ChatMessage.user("hi")))))
+  }
+
+  test("non-empty evalPromptTemplate replaces the default judge system prompt") {
+    var capturedSystem: String = null
+    val llm = new Llm:
+      def complete(prompt: String) = CompletableFuture.completedFuture("{}")
+      override def completeChat(system: String, messages: List[ChatMessage]) =
+        capturedSystem = system
+        CompletableFuture.completedFuture("""{"passed":true,"score":1.0,"reasoning":"ok"}""")
+
+    val scenario = Scenario(
+      name = "custom-judge",
+      description = "d",
+      participants = Map.empty,
+      conversations = Nil,
+      evalCriteria = List(
+        EvalCriterion(
+          name = "ok",
+          description = "ok",
+          criterionType = CriterionType.Binary,
+          requireToolCall = false,
+        )
+      ),
+      evalPromptTemplate = Some("  Judge only tool use.  "),
+    )
+    Await.result(Evaluator(llm).evaluate(scenario, Transcript()), 5.seconds)
+    assert(capturedSystem == "Judge only tool use.")
+  }
+
+  test("empty evalPromptTemplate keeps the default judge system prompt") {
+    var capturedSystem: String = null
+    val llm = new Llm:
+      def complete(prompt: String) = CompletableFuture.completedFuture("{}")
+      override def completeChat(system: String, messages: List[ChatMessage]) =
+        capturedSystem = system
+        CompletableFuture.completedFuture("""{"passed":true,"score":1.0,"reasoning":"ok"}""")
+
+    val scenario = Scenario(
+      name = "default-judge",
+      description = "d",
+      participants = Map.empty,
+      conversations = Nil,
+      evalCriteria = List(
+        EvalCriterion(
+          name = "ok",
+          description = "ok",
+          criterionType = CriterionType.Binary,
+          requireToolCall = false,
+        )
+      ),
+      evalPromptTemplate = Some("   "),
+    )
+    Await.result(Evaluator(llm).evaluate(scenario, Transcript()), 5.seconds)
+    assert(capturedSystem.startsWith("You are an expert evaluator"))
+  }
+
+  test("evaluate issues one LLM call per criterion") {
+    val prompts = scala.collection.mutable.ListBuffer.empty[String]
+    val llm = new Llm:
+      def complete(prompt: String) = CompletableFuture.completedFuture("{}")
+      override def completeChat(system: String, messages: List[ChatMessage]) =
+        prompts += messages.head.content
+        val json =
+          if messages.head.content.contains("first") then
+            """{"passed":true,"score":1.0,"reasoning":"a"}"""
+          else """{"passed":false,"score":0.0,"reasoning":"b"}"""
+        CompletableFuture.completedFuture(json)
+
+    val scenario = Scenario(
+      name = "two",
+      description = "d",
+      participants = Map.empty,
+      conversations = Nil,
+      evalCriteria = List(
+        EvalCriterion("c1", "first", CriterionType.Binary, requireToolCall = false),
+        EvalCriterion("c2", "second", CriterionType.Binary, requireToolCall = false),
+      ),
+    )
+    val result = Await.result(Evaluator(llm).evaluate(scenario, Transcript()), 5.seconds)
+    assert(prompts.size == 2)
+    assert(prompts.exists(_.contains("first")))
+    assert(prompts.exists(_.contains("second")))
+    assert(result.criterionResults.map(_.passed) == List(true, false))
   }

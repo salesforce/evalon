@@ -36,34 +36,58 @@ You will be given:
 1. A scenario description
 2. Ground truth data (the actual data the tools operate on)
 3. A full transcript of what happened
-4. A list of evaluation criteria
+4. One evaluation criterion
 
-For each criterion, determine if the agent met it. Provide:
+Determine if the agent met the criterion. Provide:
 - "passed": true/false
 - "score": 0.0 to 1.0 (how well it was met)
 - "reasoning": brief explanation
 
 Respond with valid JSON only, in this format:
-{
-  "criteria": [
-    {"passed": true, "score": 0.9, "reasoning": "..."},
-    ...
-  ],
-  "summary": "Overall assessment of the agent's performance"
-}"""
+{"passed": true, "score": 0.9, "reasoning": "..."}"""
+
+  private val toolCallVerificationPrompt: String =
+    """This criterion REQUIRES a tool/action invocation. To pass:
+   - The transcript MUST show evidence of the expected action in the turn trace
+   - Look for tool calls, function invocations, or action records in the trace
+   - If no matching action appears in trace, the criterion does NOT pass — but write the gap per the reasoning above (why it was not called), not just "the action is missing"
+"""
+
+  private val outputFormatPrompt: String =
+    """# Response Format
+
+Return a valid JSON only, which must have these fields:
+- passed: boolean
+- score: number from 0 to 1 (null for BINARY type)
+- reasoning: string (brief explanation)
+
+Do not add any other fields. Do not wrap in markdown."""
 
   def evaluate(scenario: Scenario, transcript: Transcript): Future[EvalResult] =
-    val criteriaText = scenario.evalCriteria.zipWithIndex.map { (c, i) =>
-      s"${i + 1}. ${c.description} (weight: ${c.weight})"
-    }.mkString("\n")
-
     val contextText =
       if scenario.context == Json.obj() then "None"
       else scenario.context.spaces2
 
     val transcriptText = formatTranscript(transcript)
 
-    val userPrompt = s"""## Scenario
+    val judged = Future.traverse(scenario.evalCriteria) { criterion =>
+      val criterionPrompt = s"""## Evaluation Criterion
+${criterion.description}
+${criterion.criterionType match
+    case CriterionType.Binary => "This criterion is binary (passed/failed)."
+    case CriterionType.Scored => "This criterion is scored (0.0 to 1.0)."
+    case CriterionType.Rubric =>
+      "This criterion is a rubric. Pick the level that best matches the transcript."
+}
+"""
+      val toolSection =
+        if criterion.requireToolCall then s"$toolCallVerificationPrompt\n" else ""
+
+      val fullPrompt = scenario.evalPromptTemplate.map(_.trim).filter(_.nonEmpty) match
+        case Some(prompt) =>
+          s"$prompt\n\n$transcriptText\n\n$criterionPrompt$toolSection$outputFormatPrompt"
+        case None =>
+          s"""$judgeSystemPrompt\n\n## Scenario
 Name: ${scenario.name}
 Description: ${scenario.description}
 Conversations: ${scenario.conversations.map(_.name).mkString(", ")}
@@ -74,57 +98,53 @@ $contextText
 ## Transcript
 $transcriptText
 
-## Evaluation Criteria
-$criteriaText
+$criterionPrompt
+Evaluate the agent's performance against this criterion. Use the ground truth data to verify factual correctness of the agent's responses.
 
-Evaluate the agent's performance against each criterion. Use the ground truth data to verify factual correctness of the agent's responses."""
+$outputFormatPrompt"""
 
-    llm.completeAsync(judgeSystemPrompt, List(ChatMessage.user(userPrompt))).map { response =>
-      val text = Option(response).filter(_.nonEmpty).getOrElse("{}")
+      Future {
+        llm.completeAsync(fullPrompt)
+      }.flatten.map(parseCriterionResult(criterion, _))
+    }
 
-      // Extract JSON from response (model may wrap in markdown fences)
-      // (?s) enables dotall mode so .* matches across newlines
-      val jsonStr = """(?s)```(?:json)?\s*(.*?)\s*```""".r
-        .findFirstMatchIn(text)
-        .map(_.group(1))
-        .getOrElse(text)
-
-      val raw = parse(jsonStr).flatMap(_.as[Json]).getOrElse(Json.obj())
-      val criteriaResults = raw.hcursor.downField("criteria").as[List[Json]].getOrElse(Nil)
-
-      val criterionResults = scenario.evalCriteria.zipWithIndex.map { (criterion, i) =>
-        val r = criteriaResults.lift(i).getOrElse(Json.obj())
-        val c = r.hcursor
-        CriterionResult(
-          criterion = criterion,
-          passed = c.downField("passed").as[Boolean].getOrElse(false),
-          reasoning = c.downField("reasoning").as[String].getOrElse(""),
-          score = c.downField("score").as[Double].getOrElse(0.0),
-        )
-      }
-
+    judged.map { criterionResults =>
       val totalWeight = scenario.evalCriteria.map(_.weight).sum
       val overallScore =
         if totalWeight > 0 then
           criterionResults.map(cr => cr.score * cr.criterion.weight).sum / totalWeight
         else 0.0
 
-      val summary = raw.hcursor.downField("summary").as[String].getOrElse("")
-
       EvalResult(
         scenarioName = scenario.name,
         criterionResults = criterionResults,
         overallScore = overallScore,
-        summary = summary,
+        summary = criterionResults.map(_.reasoning).filter(_.nonEmpty).mkString("; "),
       )
     }
+
+  private def parseCriterionResult(criterion: EvalCriterion, response: String): CriterionResult =
+    val text = Option(response).filter(_.nonEmpty).getOrElse("{}")
+    // (?s) enables dotall mode so .* matches across newlines
+    val jsonStr = """(?s)```(?:json)?\s*(.*?)\s*```""".r
+      .findFirstMatchIn(text)
+      .map(_.group(1))
+      .getOrElse(text)
+    val raw = parse(jsonStr).getOrElse(Json.obj())
+    val c = raw.hcursor
+    CriterionResult(
+      criterion = criterion,
+      passed = c.downField("passed").as[Boolean].getOrElse(false),
+      reasoning = c.downField("reasoning").as[String].getOrElse(""),
+      score = c.downField("score").as[Double].getOrElse(0.0),
+    )
 
   private def formatTranscript(transcript: Transcript): String =
     transcript.entries.map { entry =>
       val conv = entry.conversation.map(c => s" ($c)").getOrElse("")
       entry.message.map { m =>
-        val trace = m.trace.map(j => s" trace=${j.noSpaces}").getOrElse("")
-        s"[${m.sender}]$conv: ${m.content}\n$trace"
+        val line = s"[${m.sender}]$conv: ${m.content}"
+        m.trace.fold(line)(j => s"$line\n[trace] ${j.noSpaces}")
       }
         .orElse(entry.toolCall.map { tc =>
           s"[tool_call] ${tc.toolName}(${tc.arguments.asJson.noSpaces})"

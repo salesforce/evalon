@@ -198,6 +198,6 @@ object ScenarioLoader:
         s.trim.toLowerCase match
           case "binary"  => Right(CriterionType.Binary)
           case "scored"  => Right(CriterionType.Scored)
-          case "ordinal" => Right(CriterionType.Ordinal)
+          case "rubric" | "ordinal" => Right(CriterionType.Rubric)
           case other =>
-            Left(s"Unknown criterion type '$other' (expected binary, scored, or ordinal)")
+            Left(s"Unknown criterion type '$other' (expected binary, scored, or rubric)")

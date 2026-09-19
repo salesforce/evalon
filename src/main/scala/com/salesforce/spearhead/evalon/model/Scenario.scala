@@ -26,7 +26,7 @@ enum ResponseSpeed:
   case Fast, Medium, Slow
 
 enum CriterionType:
-  case Binary, Scored, Ordinal
+  case Binary, Scored, Rubric
 
 enum CriterionSourceType:
   case History, OpProcedure, Hybrid, Manual
