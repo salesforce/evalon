@@ -43,7 +43,7 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     val llm: Llm = prompt =>
       val text =
         if prompt.contains("expert evaluator") then
-          """{"criteria":[{"passed":true,"score":1.0,"reasoning":"ok"}],"summary":"ok"}"""
+          """{"passed":true,"score":1.0,"reasoning":"ok"}"""
         else Signals.End
       CompletableFuture.completedFuture(text)
 

@@ -190,3 +190,26 @@ class EvaluatorTest extends AnyFunSuite:
     assert(prompts.exists(_.contains("second")))
     assert(result.criterionResults.map(_.passed) == List(true, false))
   }
+
+  test("passThreshold overrides LLM passed using score") {
+    val llm: Llm = _ =>
+      CompletableFuture.completedFuture("""{"passed": true, "score": 0.4, "reasoning": "weak"}""")
+    val scenario = Scenario(
+      name = "threshold",
+      description = "d",
+      participants = Map.empty,
+      conversations = Nil,
+      evalCriteria = List(
+        EvalCriterion(
+          name = "quality",
+          description = "quality",
+          criterionType = CriterionType.Scored,
+          requireToolCall = false,
+          passThreshold = Some(0.7),
+        )
+      ),
+    )
+    val result = Await.result(Evaluator(llm).evaluate(scenario, Transcript()), 5.seconds)
+    assert(!result.criterionResults.head.passed)
+    assert(result.criterionResults.head.score == 0.4)
+  }

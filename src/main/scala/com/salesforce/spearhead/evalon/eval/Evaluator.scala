@@ -53,16 +53,6 @@ Respond with valid JSON only, in this format:
    - If no matching action appears in trace, the criterion does NOT pass — but write the gap per the reasoning above (why it was not called), not just "the action is missing"
 """
 
-  private val outputFormatPrompt: String =
-    """# Response Format
-
-Return a valid JSON only, which must have these fields:
-- passed: boolean
-- score: number from 0 to 1 (null for BINARY type)
-- reasoning: string (brief explanation)
-
-Do not add any other fields. Do not wrap in markdown."""
-
   def evaluate(scenario: Scenario, transcript: Transcript): Future[EvalResult] =
     val contextText =
       if scenario.context == Json.obj() then "None"
@@ -82,6 +72,23 @@ ${criterion.criterionType match
 """
       val toolSection =
         if criterion.requireToolCall then s"$toolCallVerificationPrompt\n" else ""
+      val outputFormatPrompt = criterion.criterionType match
+        case CriterionType.Binary =>
+          """# Response Format
+
+Return valid JSON only, with these fields:
+- passed: boolean
+- reasoning: string (brief explanation)
+
+Do not add any other fields. Do not wrap in markdown."""
+        case _ =>
+          """# Response Format
+
+Return valid JSON only, with these fields:
+- score: number from 0 to 1
+- reasoning: string (brief explanation)
+
+Do not add any other fields. Do not wrap in markdown."""
 
       val fullPrompt = scenario.evalPromptTemplate.map(_.trim).filter(_.nonEmpty) match
         case Some(prompt) =>
@@ -132,11 +139,22 @@ $outputFormatPrompt"""
       .getOrElse(text)
     val raw = parse(jsonStr).getOrElse(Json.obj())
     val c = raw.hcursor
+    val reasoning = c.downField("reasoning").as[String].getOrElse("")
+    val (passed, score) = criterion.criterionType match
+      case CriterionType.Binary =>
+        val passed = c.downField("passed").as[Boolean].getOrElse(false)
+        (passed, if passed then 1.0 else 0.0)
+      case _ =>
+        val score = c.downField("score").as[Double].getOrElse(0.0)
+        val passed = criterion.passThreshold match
+          case Some(threshold) => score >= threshold
+          case None            => c.downField("passed").as[Boolean].getOrElse(false)
+        (passed, score)
     CriterionResult(
       criterion = criterion,
-      passed = c.downField("passed").as[Boolean].getOrElse(false),
-      reasoning = c.downField("reasoning").as[String].getOrElse(""),
-      score = c.downField("score").as[Double].getOrElse(0.0),
+      passed = passed,
+      reasoning = reasoning,
+      score = score,
     )
 
   private def formatTranscript(transcript: Transcript): String =
