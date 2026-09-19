@@ -17,7 +17,9 @@
 
 package com.salesforce.spearhead.evalon.actor
 
-import scala.util.{Failure, Success}
+import scala.concurrent.Future
+import scala.util.control.NonFatal
+import scala.util.{Failure, Success, Try}
 
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
@@ -34,7 +36,10 @@ import com.salesforce.spearhead.evalon.model.{Action, Event, HistoryEntry}
   */
 object EvaluatedAgent:
 
-  case class AgentResult private[EvaluatedAgent] (action: Action, conversation: String)
+  /** Outcome of an in-flight step, piped back to this actor. A `Failure` carries the cause so it
+    * can be surfaced to the runner rather than swallowed.
+    */
+  case class AgentResult private[EvaluatedAgent] (result: Try[Action], conversation: String)
 
   /** Pending work accumulated while a step is in flight.
     *
@@ -142,7 +147,22 @@ object EvaluatedAgent:
       val newPending = pending.copy(events = pending.events ++ systemEvents)
       generating(agent, runner, agentName, directConversations, newHistory, newPending)
 
-    case (ctx, AgentResult(action, conversation)) =>
+    case (ctx, AgentResult(Failure(e), _)) =>
+      // A failed step is an infrastructure failure, not agent behavior. Surface it to the runner
+      // so the run fails fast, instead of swallowing it as an empty send.
+      ctx.log.error("Agent step failed", e)
+      runner ! ScenarioRunner.ParticipantFailed(agentName, e)
+      Behaviors.stopped
+
+    case (ctx, AgentResult(Success(null), _)) =>
+      // A future that completes with a null action is a broken step, not a real action. Surface it
+      // as a step failure rather than letting the null reach recordAction as a MatchError.
+      val e = NullPointerException("Agent.step future completed with a null action")
+      ctx.log.error("Agent step returned a null action", e)
+      runner ! ScenarioRunner.ParticipantFailed(agentName, e)
+      Behaviors.stopped
+
+    case (ctx, AgentResult(Success(action), conversation)) =>
       runner ! ScenarioRunner.ParticipantResponse(agentName, conversation, action)
       val newHistory = recordAction(history, agentName, conversation, action)
 
@@ -186,10 +206,21 @@ object EvaluatedAgent:
       pending: Pending,
       ctx: ActorContext[Participant.Command | AgentResult]
   ): Behavior[Participant.Command | AgentResult] =
-    ctx.pipeToSelf(agent.step(history, events, respondIn)) {
-      case Success(action) => AgentResult(action, respondIn)
-      case Failure(e) =>
-        ctx.log.error("Agent step failed", e)
-        AgentResult(Action.send(agentName, ""), respondIn)
-    }
+    ctx.pipeToSelf(safeStep(agent, history, events, respondIn))(AgentResult(_, respondIn))
     generating(agent, runner, agentName, directConversations, history, pending)
+
+  /** Invoke the agent's step, capturing a synchronous throw or a null result as a failed Future.
+    * `pipeToSelf` only routes failures that reach it as a `Future`; a raw `Agent` that throws in
+    * `step` before returning would otherwise escape the fail-fast path and kill the actor.
+    */
+  private def safeStep(
+      agent: Agent,
+      history: List[HistoryEntry],
+      events: List[Event],
+      respondIn: String
+  ): Future[Action] =
+    try
+      val result = agent.step(history, events, respondIn)
+      if result == null then Future.failed(NullPointerException("Agent.step returned null"))
+      else result
+    catch case NonFatal(e) => Future.failed(e)

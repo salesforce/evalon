@@ -94,7 +94,11 @@ class ClaudeAgent(
 
     def loop(remainingRounds: Int, toolInteractions: List[ToolInteraction]): Future[Action] =
       if remainingRounds <= 0 then
-        Future.successful(Action.send(agentName, "", toolInteractions))
+        // Exhausted the tool-use budget without a final answer. Return a visible message (not an
+        // empty send, which the runner would drop) so the give-up is recorded and scoreable.
+        val message =
+          s"Reached the maximum of $maxToolRounds tool-use rounds without completing the request."
+        Future.successful(Action.send(agentName, message, toolTrace))
       else
         val request = CreateMessageRequest(
           model = model,

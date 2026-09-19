@@ -96,14 +96,38 @@ If you have no useful information, recommendations, or actions to contribute, re
 
     println("=== Transcript ===\n")
     val system = EvalonRunner.newSystem()
-    try
-      val result = EvalonRunner(system).run(scenario, agent, client, options)
-      TranscriptPrinter.printEval(result.scalaEvalResult)
+    // Exit code tells callers/CI the outcome: 0 ok, 1 the agent under test failed, 2 the harness
+    // failed (retryable). `finally` runs for cleanup only; the try/catch yields the code.
+    val exitCode =
+      try
+        val result = EvalonRunner(system).run(scenario, agent, client, options)
+        TranscriptPrinter.printEval(result.scalaEvalResult)
 
-      val outputDir = Paths.get("target", "evalon-runs")
-      val savedPath =
-        DatasetWriter.saveDatasetEntry(scenario, result.scalaTranscript, result.scalaEvalResult, outputDir)
-      println(s"\n✓ Transcript saved to: $savedPath")
-    finally
-      system.terminate()
-      Await.ready(system.whenTerminated, 30.seconds)
+        val outputDir = Paths.get("target", "evalon-runs")
+        val savedPath = DatasetWriter.saveDatasetEntry(
+          scenario,
+          result.scalaTranscript,
+          result.scalaEvalResult,
+          outputDir
+        )
+        println(s"\n✓ Transcript saved to: $savedPath")
+        0
+      catch
+        // The run failed fast rather than being silently judged. The transcript above was printed
+        // live as it built, so it already shows progress up to the failure; just report the cause.
+        case e: AgentStepFailedException =>
+          Console.err.println(s"\n✗ Evaluated agent failed: ${e.getCause}")
+          1
+        case e: SimulationFailedException =>
+          Console.err.println(
+            s"\n✗ Simulation harness failed at participant '${e.getParticipant}': ${e.getCause}"
+          )
+          Console.err.println(
+            "  This is a harness failure, not the agent under test; retry the run."
+          )
+          2
+      finally
+        system.terminate()
+        Await.ready(system.whenTerminated, 30.seconds)
+
+    if exitCode != 0 then System.exit(exitCode)

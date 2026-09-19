@@ -28,7 +28,7 @@ participants:
 
   representative:
     type: simulated
-    responseSpeed: medium
+    response_speed: medium
     persona: >
       You are Sarah, a hotel support representative. You're relatively
       new to the role (2 months in). You handle cancellation requests but

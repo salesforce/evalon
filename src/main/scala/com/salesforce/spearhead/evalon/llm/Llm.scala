@@ -21,6 +21,7 @@ import java.util.concurrent.{CompletableFuture, CompletionStage}
 
 import scala.concurrent.Future
 import scala.jdk.FutureConverters.*
+import scala.util.control.NonFatal
 
 /** Pluggable language model for simulated participants, the judge, and event sources.
   *
@@ -50,9 +51,22 @@ object Llm:
   def blocking(fn: Blocking): Llm =
     prompt => CompletableFuture.supplyAsync(() => fn.complete(prompt))
 
+  /** Adapt a raw {@link Llm}'s {@link CompletionStage} to a {@code Future}, capturing a synchronous
+    * throw or a null return as a failed {@code Future}. The stage is by-name so the untrusted call
+    * runs inside the guard: a raw implementation that throws before returning a stage would
+    * otherwise escape the caller's `pipeToSelf`, killing the actor instead of failing the run fast.
+    */
+  private def toFuture(stage: => CompletionStage[String]): Future[String] =
+    try
+      val result = stage
+      if result == null then
+        Future.failed(NullPointerException("Llm returned a null CompletionStage"))
+      else result.asScala
+    catch case NonFatal(e) => Future.failed(e)
+
   extension (llm: Llm)
     def completeAsync(prompt: String): Future[String] =
-      llm.complete(prompt).asScala
+      toFuture(llm.complete(prompt))
 
     def completeAsync(system: String, messages: List[ChatMessage]): Future[String] =
-      llm.completeChat(system, messages).asScala
+      toFuture(llm.completeChat(system, messages))

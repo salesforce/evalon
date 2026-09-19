@@ -39,6 +39,7 @@ object EventSourceActor:
 
   // Internal
   private case class EmissionResult(events: List[Event]) extends Command
+  private case class EmissionFailed(cause: Throwable) extends Command
 
   def apply(
     config: EventSourceConfig,
@@ -100,8 +101,7 @@ Only emit events when clearly warranted by observed activity. Do not emit events
               }
               EmissionResult(events)
             case Failure(e) =>
-              context.log.warn("Event source LLM call failed: {}", e.getMessage)
-              EmissionResult(Nil)
+              EmissionFailed(e)
           }
           simulated(config, llm, runner, updated)
         else simulated(config, llm, runner, updated)
@@ -110,4 +110,11 @@ Only emit events when clearly warranted by observed activity. Do not emit events
         if events.nonEmpty then
           runner ! ScenarioRunner.EventSourceEmission(config.name, events)
         Behaviors.same
+
+      case EmissionFailed(cause) =>
+        // A failed event-source LLM call is a broken harness. Fail the run fast rather than
+        // silently emitting nothing.
+        context.log.error("Event source LLM call failed: {}", config.name, cause)
+        runner ! ScenarioRunner.ParticipantFailed(config.name, cause)
+        Behaviors.stopped
   }

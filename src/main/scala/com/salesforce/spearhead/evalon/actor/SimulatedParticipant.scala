@@ -64,6 +64,7 @@ object SimulatedParticipant:
     case TextThenEnd(content: String) // final message before ending
     case End
     case Silent // nothing to say (e.g. [NO_QUESTION])
+    case Failed(cause: Throwable) // LLM call failed terminally; surfaced, not swallowed
 
   /**
    * Per-cycle metadata. A cycle begins when idle receives a message and ends when the actor returns
@@ -293,6 +294,13 @@ Respond with only your message content. Your output is delivered to the other pa
         case ResponseKind.Silent =>
           ctx.log.debug("{} responded [NO_QUESTION] in {}", setup.config.name, conversation)
           processPostGeneration(setup, history, updatedCycle, timers, ctx)
+
+        case ResponseKind.Failed(cause) =>
+          // A failed simulator LLM call is a broken harness, not a real "say nothing". Fail the
+          // run fast instead of leaving this participant silently mute.
+          ctx.log.error("LLM call failed for participant {}", setup.config.name, cause)
+          setup.runner ! ScenarioRunner.ParticipantFailed(setup.config.name, cause)
+          Behaviors.stopped
   }
 
   private def startGeneration(
@@ -333,8 +341,7 @@ Respond with only your message content. Your output is delivered to the other pa
           case None => ResponseKind.Silent
         LlmResult(conversation, kind)
       case Failure(e) =>
-        ctx.log.error("LLM call failed for participant {}", setup.config.name, e)
-        LlmResult(conversation, ResponseKind.Silent)
+        LlmResult(conversation, ResponseKind.Failed(e))
     }
 
     generating(setup, history, conversation, cycle, timers)

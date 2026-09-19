@@ -29,6 +29,16 @@ import com.salesforce.spearhead.evalon.model.{Action, Event, HistoryEntry}
   * runs its own tools and returns the resulting action plus the tool trace for the current step.
   */
 trait Agent:
+
+  /** Produce the agent's next action for `respondIn`, given the history and pending events.
+    *
+    * Must not block the calling thread. `step` is invoked inline on the simulator's actor
+    * dispatcher, so any blocking work (network, disk, `Await`) done synchronously before the
+    * returned `Future` completes stalls the actor and ties up a dispatcher thread. Do I/O
+    * asynchronously, or run blocking work on your own `ExecutionContext` and return a `Future`
+    * that completes when it finishes. A synchronous throw or a null result is treated as a step
+    * failure and fails the run.
+    */
   def step(
       history: List[HistoryEntry],
       events: List[Event],

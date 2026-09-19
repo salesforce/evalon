@@ -78,11 +78,20 @@ final class EvalonRunner(system: ActorSystem[SpawnProtocol.Command]):
       ),
       options.getSimulationTimeout.toScala
     )
+    // A failed participant fails the run fast, carrying the partial transcript, rather than being
+    // scored as if it stayed silent. The agent under test and the simulation harness fail with
+    // distinct exceptions so callers can tell "the agent broke" from "the harness broke".
+    val transcript = simulation match
+      case ScenarioRunner.SimulationResult.Completed(t) => t
+      case ScenarioRunner.SimulationResult.Failed(t, cause, participant) =>
+        if participant == EvalonRunner.evaluatedName(scenario) then
+          throw AgentStepFailedException(cause, t)
+        else throw SimulationFailedException(participant, cause, t)
     val evalResult = Await.result(
-      Evaluator(llm)(using ec).evaluate(scenario, simulation.transcript),
+      Evaluator(llm)(using ec).evaluate(scenario, transcript),
       options.getJudgeTimeout.toScala
     )
-    EvalonResult.from(evalResult, simulation.transcript)
+    EvalonResult.from(evalResult, transcript)
 
 object EvalonRunner:
 

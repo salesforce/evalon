@@ -50,7 +50,17 @@ object ScenarioRunner:
   // Event source emissions
   case class EventSourceEmission(sourceName: String, events: List[Event]) extends Command
 
-  case class SimulationResult(transcript: Transcript)
+  // A participant's async work failed terminally (thrown, null/failed CompletionStage, exhausted
+  // retries): the evaluated agent's step, a simulated participant's LLM call, or an event source's.
+  case class ParticipantFailed(participant: String, cause: Throwable) extends Command
+
+  /**
+   * Outcome of a simulation. Both arms carry a transcript: `Failed` holds whatever was recorded up
+   * to the point a participant failed, and names the participant that failed.
+   */
+  enum SimulationResult:
+    case Completed(transcript: Transcript)
+    case Failed(transcript: Transcript, cause: Throwable, participant: String)
 
   /** Internal state for the running simulation. */
   private case class RunState(
@@ -158,6 +168,9 @@ object ScenarioRunner:
     case (ctx, msg: EventSourceEmission) =>
       ctx.log.warn("EventSourceEmission before Run, ignoring: {}", msg)
       Behaviors.same
+    case (ctx, msg: ParticipantFailed) =>
+      ctx.log.warn("ParticipantFailed before Run, ignoring: {}", msg)
+      Behaviors.same
   }
 
   /** Main running behavior — handles responses as they arrive. */
@@ -172,7 +185,7 @@ object ScenarioRunner:
               message = Some(Message(participant, Signals.End))
             )
           )
-          finalState.replyTo ! SimulationResult(finalState.transcript)
+          finalState.replyTo ! SimulationResult.Completed(finalState.transcript)
           Behaviors.stopped
 
         case send: Action.Send =>
@@ -180,7 +193,7 @@ object ScenarioRunner:
           // Check message limit per conversation
           val count = newState.messageCounts.getOrElse(conversation, 0)
           if count >= newState.scenario.maxTurns * 2 then
-            newState.replyTo ! SimulationResult(newState.transcript)
+            newState.replyTo ! SimulationResult.Completed(newState.transcript)
             Behaviors.stopped
           else running(newState)
 
@@ -195,6 +208,11 @@ object ScenarioRunner:
           ref ! Participant.ReceiveEvents(events)
         }
       running(s)
+
+    case (_, ParticipantFailed(participant, cause)) =>
+      // Fail the whole simulation fast, carrying the partial transcript for debugging.
+      state.replyTo ! SimulationResult.Failed(state.transcript, cause, participant)
+      Behaviors.stopped
 
     case (ctx, msg: Run) =>
       ctx.log.warn("Run received in running state, ignoring: {}", msg)
