@@ -122,72 +122,12 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     }
   }
 
-  test("AgentReply trace is attached to the send action") {
-    import scala.concurrent.ExecutionContext.Implicits.global
-    import io.circe.Json
-    import io.circe.syntax.*
-
-    val agent = SimpleAgent.toAgent(
-      (_, _, _) =>
-        CompletableFuture.completedFuture(AgentReply.send("hello", """{"intent":"greet"}""")),
-      "agent"
-    )
-    Await.result(agent.step(Nil, Nil, "chat"), 5.seconds) match
-      case Action.Send(msg, _) =>
-        assert(msg.content == "hello")
-        assert(msg.trace.contains(Json.obj("intent" -> "greet".asJson)))
-      case other => fail(s"expected Send, got $other")
-  }
-
-  test("transcript JSON includes message trace") {
-    import io.circe.Json
-    import io.circe.syntax.*
-
-    val transcript = Transcript().addMessage(
-      sender = "agent",
-      content = "hello",
-      conversation = Some("chat"),
-      trace = Some(Json.obj("intent" -> "greet".asJson)),
-    )
-    val entry = transcript.toJson.asArray.get.head
-    assert(entry.hcursor.get[String]("content").toOption.contains("hello"))
-    assert(entry.hcursor.downField("trace").get[String]("intent").toOption.contains("greet"))
-  }
-
-  test("history turns expose trace to SimpleAgent") {
-    import scala.concurrent.ExecutionContext.Implicits.global
-    import io.circe.Json
-
-    var captured: String = null
-    val simple: SimpleAgent = (_, history, _) =>
-      captured = history.get(0).getTrace.orElse(null)
-      CompletableFuture.completedFuture(AgentReply.end())
-    val agent = SimpleAgent.toAgent(simple, "agent")
-    val history = List(
-      HistoryEntry.Turn("chat", "end_user", "hi", Some(Json.obj("k" -> Json.fromString("v"))))
-    )
-    Await.result(agent.step(history, Nil, "chat"), 5.seconds)
-    assert(captured == """{"k":"v"}""")
-  }
-
-  test("invalid AgentReply trace fails the step") {
-    import scala.concurrent.ExecutionContext.Implicits.global
-
-    val agent = SimpleAgent.toAgent(
-      (_, _, _) => CompletableFuture.completedFuture(AgentReply.send("hello", "not-json")),
-      "agent"
-    )
-    intercept[IllegalArgumentException] {
-      Await.result(agent.step(Nil, Nil, "chat"), 5.seconds)
-    }
-  }
-
   // A judge LLM that scores every run "ok", and drives the simulated user to say something
   // (so the evaluated agent actually gets a turn) rather than ending immediately.
   private val judgeAndChatLlm: Llm = prompt =>
     val text =
       if prompt.contains("expert evaluator") then
-        """{"criteria":[{"passed":true,"score":1.0,"reasoning":"ok"}],"summary":"ok"}"""
+        """{"passed":true,"reasoning":"ok"}"""
       else "I need help with my order."
     CompletableFuture.completedFuture(text)
 

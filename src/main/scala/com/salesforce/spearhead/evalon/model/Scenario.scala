@@ -71,7 +71,6 @@ case class EvalCriterion(
   criterionType: CriterionType,
   requireToolCall: Boolean,
   passThreshold: Option[Double] = None,
-  tags: List[String] = Nil,
   weight: Double = 1.0,
 )
 

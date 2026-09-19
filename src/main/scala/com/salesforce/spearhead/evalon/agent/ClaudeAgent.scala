@@ -98,7 +98,7 @@ class ClaudeAgent(
         // empty send, which the runner would drop) so the give-up is recorded and scoreable.
         val message =
           s"Reached the maximum of $maxToolRounds tool-use rounds without completing the request."
-        Future.successful(Action.send(agentName, message, toolTrace))
+        Future.successful(Action.send(agentName, message, toolInteractions))
       else
         val request = CreateMessageRequest(
           model = model,

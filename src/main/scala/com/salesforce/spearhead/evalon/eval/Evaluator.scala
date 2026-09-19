@@ -148,7 +148,7 @@ $outputFormatPrompt"""
         val score = c.downField("score").as[Double].getOrElse(0.0)
         val passed = criterion.passThreshold match
           case Some(threshold) => score >= threshold
-          case None            => c.downField("passed").as[Boolean].getOrElse(false)
+          case None => c.downField("passed").as[Boolean].getOrElse(false)
         (passed, score)
     CriterionResult(
       criterion = criterion,

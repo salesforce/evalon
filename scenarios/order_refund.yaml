@@ -15,49 +15,41 @@ participants:
     goal: >
       Get a complete refund for your defective laptop order. You want confirmation
       that the refund has been processed and when you'll receive the money.
-    context_facts:
-      name: Emily Rodriguez
-      email: emily.rodriguez@example.com
-      order_number: ORD-2024-001
-      order_total: 899.99
-      product: laptop
-      issue: defective_product
 
   agent:
     type: evaluated
-    context_facts:
-      name: Emily Rodriguez
-      email: emily.rodriguez@example.com
-      order_number: ORD-2024-001
-      order_total: 899.99
-      contacts:
-        emily.rodriguez@example.com:
-          id: "CON-001"
-          email: "emily.rodriguez@example.com"
-          name: "Emily Rodriguez"
-      orders:
-        ORD-2024-001:
-          id: "ORDER-001"
-          order_number: "ORD-2024-001"
-          name: "Laptop Order"
-          description: "Dell XPS 15 Laptop - Silver, 16GB RAM, 512GB SSD"
-          total_price: 899.99
-          contact_email: "emily.rodriguez@example.com"
-          refund_eligibility_status: "Pending"
-          refund_percentage: 100
-          status: "Delivered"
-      refund_requests:
-        RFN-0001:
-          refund_request_number: "RFN-0001"
-          order_id: "ORDER-001"
-          status: "Initiated"
-          refund_amount: 899.99
-          created_date: "2026-04-09"
 
 conversations:
   - name: support_chat
     between: [end_user, agent]
     initiated_by: end_user
+
+context:
+  contacts:
+    emily.rodriguez@example.com:
+      id: "CON-001"
+      email: "emily.rodriguez@example.com"
+      name: "Emily Rodriguez"
+
+  orders:
+    ORD-2024-001:
+      id: "ORDER-001"
+      order_number: "ORD-2024-001"
+      name: "Laptop Order"
+      description: "Dell XPS 15 Laptop - Silver, 16GB RAM, 512GB SSD"
+      total_price: 899.99
+      contact_email: "emily.rodriguez@example.com"
+      refund_eligibility_status: "Pending"
+      refund_percentage: 100
+      status: "Delivered"
+
+  refund_requests:
+    RFN-0001:
+      refund_request_number: "RFN-0001"
+      order_id: "ORDER-001"
+      status: "Initiated"
+      refund_amount: 899.99
+      created_date: "2026-04-09"
 
 max_turns: 20
 
@@ -66,32 +58,26 @@ eval_criteria:
     description: "Agent verified customer identity before proceeding"
     criterion_type: binary
     require_tool_call: true
-    tags: [tools, identity]
   - name: retrieve_order
     description: "Agent retrieved order information using order number"
     criterion_type: binary
     require_tool_call: true
-    tags: [tools]
   - name: verify_eligibility
     description: "Agent verified refund eligibility for the order"
     criterion_type: binary
     require_tool_call: true
-    tags: [tools]
   - name: calculate_refund
     description: "Agent calculated or confirmed refund amount"
     criterion_type: binary
     require_tool_call: true
-    tags: [tools]
   - name: initiate_refund
     description: "Agent initiated the refund process with reason"
     criterion_type: binary
     require_tool_call: true
-    tags: [tools]
   - name: process_refund
     description: "Agent processed (completed) the refund"
     criterion_type: binary
     require_tool_call: true
-    tags: [tools]
     weight: 2.0
   - name: confirm_refund_status
     description: "Agent confirmed refund status to customer"
@@ -106,4 +92,3 @@ eval_criteria:
     criterion_type: scored
     require_tool_call: false
     pass_threshold: 0.7
-    tags: [tone]

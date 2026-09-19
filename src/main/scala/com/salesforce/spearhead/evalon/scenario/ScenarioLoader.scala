@@ -187,7 +187,6 @@ object ScenarioLoader:
           criterionType = criterionType,
           requireToolCall = c.downField("require_tool_call").as[Boolean].toOption.getOrElse(false),
           passThreshold = c.downField("pass_threshold").as[Double].toOption,
-          tags = c.downField("tags").as[List[String]].toOption.getOrElse(Nil),
           weight = c.downField("weight").as[Double].toOption.getOrElse(1.0),
         )
 
@@ -196,8 +195,8 @@ object ScenarioLoader:
       case None => Right(CriterionType.Binary)
       case Some(s) =>
         s.trim.toLowerCase match
-          case "binary"  => Right(CriterionType.Binary)
-          case "scored"  => Right(CriterionType.Scored)
-          case "rubric" | "ordinal" => Right(CriterionType.Rubric)
+          case "binary" => Right(CriterionType.Binary)
+          case "scored" => Right(CriterionType.Scored)
+          case "rubric" => Right(CriterionType.Rubric)
           case other =>
             Left(s"Unknown criterion type '$other' (expected binary, scored, or rubric)")

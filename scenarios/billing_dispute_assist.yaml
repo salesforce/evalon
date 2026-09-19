@@ -17,11 +17,6 @@ participants:
       Get the disputed charge investigated and resolved with an appropriate refund
       or credit. Provide your email when asked and answer questions about the
       transaction.
-    context_facts:
-      name: Jordan Martinez
-      email: jordan.martinez@example.com
-      disputed_amount: 49.99
-      issue: unrecognized_charge
 
   representative:
     type: simulated
@@ -35,35 +30,10 @@ participants:
     goal: >
       Help the customer with billing dispute related questions and process the appropriate
       actions based on agent's guidance and policy recommendations.
-    context_facts:
-      name: Alex
-      role: billing_support_representative
 
   agent:
     type: evaluated
     endpoint: http://localhost:8080
-    context_facts:
-      name: Jordan Martinez
-      email: jordan.martinez@example.com
-      disputed_amount: 49.99
-      contacts:
-        jordan.martinez@example.com:
-          id: "CON-001"
-          email: "jordan.martinez@example.com"
-          name: "Jordan Martinez"
-          account_tier: standard
-      transactions:
-        TXN-049:
-          id: "TXN-049"
-          contact_id: "CON-001"
-          amount: 49.99
-          status: Completed
-          date: "2026-03-20"
-          description: "Unrecognized merchant charge"
-      refund_eligibility:
-        eligible: true
-        policy: full_refund_unrecognized_charge
-        outcome: full_refund
 
 conversations:
   - name: support_chat
@@ -84,33 +54,27 @@ eval_criteria:
     description: "Agent provided guidance to verify customer identity and collect account identifier"
     criterion_type: binary
     require_tool_call: false
-    tags: [assist, identity]
   - name: recommend_account_lookup
     description: "Agent recommended looking up account details using the customer's email"
     criterion_type: binary
     require_tool_call: false
-    tags: [assist, tools]
   - name: recommend_transaction_search
     description: "Agent recommended searching for the disputed transaction"
     criterion_type: binary
     require_tool_call: false
-    tags: [assist, tools]
   - name: check_refund_eligibility
     description: "Agent checked refund eligibility based on account tier and transaction details"
     criterion_type: binary
     require_tool_call: true
-    tags: [tools]
   - name: recommend_resolution
     description: "Agent recommended appropriate resolution (full refund, partial refund, credit, or escalation)"
     criterion_type: ordinal
     require_tool_call: false
     pass_threshold: 0.7
-    tags: [assist]
   - name: rep_follows_without_reveal
     description: "Representative followed guidance naturally without revealing the AI agent to customer"
     criterion_type: binary
     require_tool_call: false
-    tags: [assist]
   - name: dispute_resolved
     description: "Customer's dispute was resolved with clear explanation of the outcome"
     criterion_type: binary
