@@ -109,12 +109,10 @@ class EvaluatorTest extends AnyFunSuite:
   }
 
   test("non-empty evalPromptTemplate replaces the default judge system prompt") {
-    var capturedSystem: String = null
-    val llm = new Llm:
-      def complete(prompt: String) = CompletableFuture.completedFuture("{}")
-      override def completeChat(system: String, messages: List[ChatMessage]) =
-        capturedSystem = system
-        CompletableFuture.completedFuture("""{"passed":true,"score":1.0,"reasoning":"ok"}""")
+    var captured: String = null
+    val llm: Llm = prompt =>
+      captured = prompt
+      CompletableFuture.completedFuture("""{"passed":true,"reasoning":"ok"}""")
 
     val scenario = Scenario(
       name = "custom-judge",
@@ -132,16 +130,15 @@ class EvaluatorTest extends AnyFunSuite:
       evalPromptTemplate = Some("  Judge only tool use.  "),
     )
     Await.result(Evaluator(llm).evaluate(scenario, Transcript()), 5.seconds)
-    assert(capturedSystem == "Judge only tool use.")
+    assert(captured.startsWith("Judge only tool use."))
+    assert(!captured.contains("You are an expert evaluator"))
   }
 
   test("empty evalPromptTemplate keeps the default judge system prompt") {
-    var capturedSystem: String = null
-    val llm = new Llm:
-      def complete(prompt: String) = CompletableFuture.completedFuture("{}")
-      override def completeChat(system: String, messages: List[ChatMessage]) =
-        capturedSystem = system
-        CompletableFuture.completedFuture("""{"passed":true,"score":1.0,"reasoning":"ok"}""")
+    var captured: String = null
+    val llm: Llm = prompt =>
+      captured = prompt
+      CompletableFuture.completedFuture("""{"passed":true,"reasoning":"ok"}""")
 
     val scenario = Scenario(
       name = "default-judge",
@@ -159,20 +156,17 @@ class EvaluatorTest extends AnyFunSuite:
       evalPromptTemplate = Some("   "),
     )
     Await.result(Evaluator(llm).evaluate(scenario, Transcript()), 5.seconds)
-    assert(capturedSystem.startsWith("You are an expert evaluator"))
+    assert(captured.startsWith("You are an expert evaluator"))
   }
 
   test("evaluate issues one LLM call per criterion") {
     val prompts = scala.collection.mutable.ListBuffer.empty[String]
-    val llm = new Llm:
-      def complete(prompt: String) = CompletableFuture.completedFuture("{}")
-      override def completeChat(system: String, messages: List[ChatMessage]) =
-        prompts += messages.head.content
-        val json =
-          if messages.head.content.contains("first") then
-            """{"passed":true,"score":1.0,"reasoning":"a"}"""
-          else """{"passed":false,"score":0.0,"reasoning":"b"}"""
-        CompletableFuture.completedFuture(json)
+    val llm: Llm = prompt =>
+      prompts += prompt
+      val json =
+        if prompt.contains("first") then """{"passed":true,"reasoning":"a"}"""
+        else """{"passed":false,"reasoning":"b"}"""
+      CompletableFuture.completedFuture(json)
 
     val scenario = Scenario(
       name = "two",
