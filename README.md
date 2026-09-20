@@ -42,6 +42,9 @@ sbt "run scenarios/hotel_cancellation_assist.yaml"
 # Payment activation (direct, 3 tools)
 sbt "run scenarios/payment_activation.yaml"
 
+# Billing dispute (assist topology: user <-> rep, agent observes + assists)
+sbt "run scenarios/billing_dispute_assist.yaml"
+
 # Complex payment issue (direct, 14 tools, 30 turns)
 sbt "run scenarios/comprehensive_payment_issue.yaml"
 
@@ -77,20 +80,20 @@ sbt 'set ThisBuild / version := "0.1.0-LOCAL-SNAPSHOT"' publishLocal
 
 - `model/` — Domain types: `Message`, `Action`, `Event`, `HistoryEntry`, `Transcript`, `Scenario`, `EvalResult`
 - `actor/` — Pekko typed actors for simulation participants and orchestration
-- `agent/` — `Agent` trait, `ClaudeAgent` (in-process Claude with tool-use loop), and `RemoteAgent` (HTTP proxy for non-JVM agents)
+- `agent/` — `Agent` trait, `SimpleAgent` (Java-friendly SAM), `ClaudeAgent` (in-process Claude with tool-use loop), and `RemoteAgent` (HTTP proxy for non-JVM agents)
 - `tool/` — `Tool` trait and mock implementations (flights, hotels, payments, refunds)
 - `llm/` — sttp-based Anthropic Messages API client with circe codecs
 - `scenario/` — YAML scenario loader (circe-yaml)
-- `eval/` — LLM-as-judge evaluator
-- `output/` — Colored transcript printer
+- `eval/` — LLM-as-judge evaluator (one call per criterion)
+- `output/` — Colored transcript printer and dataset JSON writer
 
 ### Concepts
 
-- **Participants** — `simulated` (LLM-driven), `evaluated` (agent under test), or `custom` (user code)
+- **Participants** — `simulated` (LLM-driven), `evaluated` (agent under test), or `custom` (user code). Simulated participants may set `template` to replace the default role-play prompt (the `[END]` instruction is always appended).
 - **Conversations** — named channels between participants, with an optional initiator
 - **Observations** — allow a participant to observe messages in conversations it's not directly part of (currently only `EvaluatedAgent` reacts to observed events; `SimulatedParticipant` ignores them — support will be added when a scenario needs it)
 - **Event sources** — actors that observe all simulation traffic and emit derived events (⚠️ experimental: `custom` source type is not wired up, dedup of repeated emissions is not handled, and no shipped scenario exercises this path yet)
-- **Transcript** — immutable ordered log of all messages, tool calls, tool results, and events
+- **Transcript** — immutable ordered log of all messages, tool calls, tool results, and events. Each message may include an optional JSON `trace` (how that reply was generated)
 
 ### Evaluating remote agents
 
@@ -104,6 +107,7 @@ Wire format (request):
   "protocol_version": "1",
   "history": [
     {"type": "turn", "conversation": "support_chat", "sender": "end_user", "content": "..."},
+    {"type": "turn", "conversation": "support_chat", "sender": "agent", "content": "...", "trace": {"intent": "lookup"}},
     {"type": "tool_use", "conversation": "agent_assist", "interaction": {"call": {...}, "result": {...}}}
   ],
   "events": [{"name": "case_created", "data": {...}}],
@@ -113,9 +117,23 @@ Wire format (request):
 
 Wire format (response):
 ```json
-{"action": {"type": "send", "message": {"sender": "agent", "content": "..."}, "tool_trace": []}}
+{
+  "action": {
+    "type": "send",
+    "message": {"sender": "agent", "content": "...", "trace": {"intent": "lookup"}},
+    "tool_interactions": []
+  }
+}
 ```
+`trace` on a message is optional JSON describing how that reply was generated. `tool_interactions` is the list of tool call/result pairs this step actually ran.
+
 Or `{"action": {"type": "end"}}` to end the conversation.
+
+A Java `SimpleAgent` can attach the same generation trace as an optional JSON string:
+
+```java
+AgentReply.send(content, objectMapper.writeValueAsString(traceMap));
+```
 
 A minimal Python server (FastAPI, ~70 lines) lives at [`examples/remote_agent_python/server.py`](examples/remote_agent_python/server.py). With [`uv`](https://github.com/astral-sh/uv) installed:
 
@@ -136,7 +154,7 @@ Evalon retries 429/5xx responses with exponential backoff (3 retries, 1s base). 
 5. Observer notifications deliver new messages as events (`ReceiveEvents`) to observing participants
 6. Event sources receive all traffic and may emit additional events
 7. Simulation ends when any participant signals `[END]` or `max_turns` is reached
-8. The evaluator scores the transcript against per-criterion behavioral checks
+8. The evaluator scores the transcript with **one LLM call per criterion**, then combines weighted scores
 
 ### Scenario YAML format
 
@@ -150,26 +168,28 @@ participants:
     type: simulated
     persona: You are Jane Doe, a frustrated customer...
     goal: Get rebooked on the next available flight.
-    context_facts:
-      passenger_name: Jane Doe
-      flight_number: AA123
-      booking_ref: BK-5678
+    # Optional: replace the default simulated-participant prompt.
+    # template: |
+    #   You are role-playing as Jane Doe.
   agent:
     type: evaluated
     # Optional: point at an HTTP server speaking the remote-agent protocol (see
     # examples/remote_agent_python/server.py). Without this, evaluation uses ClaudeAgent.
     # endpoint: http://localhost:8080
-    context_facts:
-      passenger_name: Jane Doe
-      flight_number: AA123
-      booking_ref: BK-5678
-      flights:
-        AA123: { flight_number: AA123, status: delayed, ... }
 
 conversations:
   - name: support_chat
     between: [end_user, agent]
     initiated_by: end_user
+
+# Shared ground truth for tools (not per-participant).
+context:
+  flights:
+    AA123:
+      flight_number: AA123
+      status: delayed
+      passenger: Jane Doe
+      booking_ref: BK-5678
 
 observations:
   - participant: agent
@@ -185,7 +205,28 @@ event_sources:
 
 max_turns: 10
 
+# Optional: replace the default judge prompt. The transcript, criterion, and
+# response-format instructions are still appended.
+# eval_prompt_template: |
+#   You are judging only whether the agent used the right tools.
+
 eval_criteria:
-  - description: "Agent looked up the customer's flight status"
-  - description: "Agent rebooked the customer"
+  - name: lookup_flight_status
+    description: "Agent looked up the customer's current flight status"
+    criterion_type: binary          # binary | scored | rubric
+    require_tool_call: true
+  - name: rebook_flight
+    description: "Agent successfully rebooked the customer on a new flight"
+    criterion_type: binary
+    require_tool_call: true
+    weight: 2.0
+  - name: professional_tone
+    description: "Agent was empathetic and professional in tone"
+    criterion_type: scored
+    require_tool_call: false
+    pass_threshold: 0.7             # scored/rubric: passed if score >= this
 ```
+
+A criterion may also be a plain string; that is treated as a binary check with `require_tool_call: false`.
+
+Judge JSON is per criterion: binary returns `{passed, reasoning}`; scored and rubric return `{score, reasoning}`. Binary `passed` comes from the judge; scored/rubric `passed` is `score >= pass_threshold` when that field is set.
