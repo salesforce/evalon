@@ -31,6 +31,7 @@ case class EvalResult(
   scenarioName: String,
   criterionResults: List[CriterionResult],
   overallScore: Double,
+  overallPassed: Boolean,
   summary: String,
 )
 
@@ -39,6 +40,7 @@ object EvalResult:
     Json.obj(
       "scenario_name" -> r.scenarioName.asJson,
       "overall_score" -> r.overallScore.asJson,
+      "overall_passed" -> r.overallPassed.asJson,
       "summary" -> r.summary.asJson,
       "criteria" -> r.criterionResults.map { cr =>
         Json.obj(

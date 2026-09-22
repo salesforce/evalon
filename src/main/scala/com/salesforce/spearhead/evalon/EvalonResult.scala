@@ -38,6 +38,7 @@ final class EvalonCriterionResult(
 final class EvalonResult(
     private val scenarioName: String,
     private val overallScore: Double,
+    private val overallPassed: Boolean,
     private val summary: String,
     private val criterionResults: util.List[EvalonCriterionResult],
     private[evalon] val scalaEvalResult: EvalResult,
@@ -45,6 +46,7 @@ final class EvalonResult(
 ):
   def getScenarioName: String = scenarioName
   def getOverallScore: Double = overallScore
+  def isOverallPassed: Boolean = overallPassed
   def getSummary: String = summary
   def getCriterionResults: util.List[EvalonCriterionResult] = criterionResults
 
@@ -61,6 +63,7 @@ object EvalonResult:
     EvalonResult(
       evalResult.scenarioName,
       evalResult.overallScore,
+      evalResult.overallPassed,
       evalResult.summary,
       criteria,
       evalResult,

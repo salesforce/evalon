@@ -121,11 +121,16 @@ $outputFormatPrompt"""
         if totalWeight > 0 then
           criterionResults.map(cr => cr.score * cr.criterion.weight).sum / totalWeight
         else 0.0
-
+      val overallPassed = 
+        if criterionResults.isEmpty then 
+          false // no criteria to evaluate, so we can't say if the overall result is passed
+        else criterionResults.forall(_.passed)
+      
       EvalResult(
         scenarioName = scenario.name,
         criterionResults = criterionResults,
         overallScore = overallScore,
+        overallPassed = overallPassed,
         summary = criterionResults.map(_.reasoning).filter(_.nonEmpty).mkString("; "),
       )
     }

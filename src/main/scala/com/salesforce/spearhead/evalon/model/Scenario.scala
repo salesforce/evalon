@@ -28,9 +28,6 @@ enum ResponseSpeed:
 enum CriterionType:
   case Binary, Scored, Rubric
 
-enum CriterionSourceType:
-  case History, OpProcedure, Hybrid, Manual
-
 case class ParticipantConfig(
   name: String,
   participantType: ParticipantType = ParticipantType.Simulated,
