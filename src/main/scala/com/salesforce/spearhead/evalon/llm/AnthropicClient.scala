@@ -49,9 +49,6 @@ class AnthropicClient(
     val requestBody = request.asJson.noSpaces
     sendWithRetry(requestBody)
 
-  override def complete(prompt: String): CompletionStage[String] =
-    completeChat("", List(ChatMessage.user(prompt)))
-
   override def completeChat(system: String, messages: List[ChatMessage]): CompletionStage[String] =
     val request = CreateMessageRequest(
       model = Settings.defaultModel,

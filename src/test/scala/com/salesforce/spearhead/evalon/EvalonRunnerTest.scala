@@ -41,7 +41,8 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     Await.ready(system.whenTerminated, 30.seconds)
 
   test("sequential runs reuse one caller-owned actor system") {
-    val llm: Llm = prompt =>
+    val llm: Llm = (system, messages) =>
+      val prompt = (system +: messages.map(_.content)).mkString("\n")
       val text =
         if prompt.contains("expert evaluator") then
           """{"passed":true,"score":1.0,"reasoning":"ok"}"""
@@ -124,7 +125,8 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
 
   // A judge LLM that scores every run "ok", and drives the simulated user to say something
   // (so the evaluated agent actually gets a turn) rather than ending immediately.
-  private val judgeAndChatLlm: Llm = prompt =>
+  private val judgeAndChatLlm: Llm = (system, messages) =>
+    val prompt = (system +: messages.map(_.content)).mkString("\n")
     val text =
       if prompt.contains("expert evaluator") then
         """{"passed":true,"reasoning":"ok"}"""
@@ -192,7 +194,7 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
 
   test("a simulated participant's LLM failure fails the run as a harness failure") {
     // The failing participant is not the agent under test, so it surfaces as a harness failure.
-    val llm: Llm = _ => CompletableFuture.failedFuture(new IllegalStateException("llm down"))
+    val llm: Llm = (_, _) => CompletableFuture.failedFuture(new IllegalStateException("llm down"))
     val agent: SimpleAgent = (_, _, _) => CompletableFuture.completedFuture(AgentReply.end())
 
     val ex = intercept[SimulationFailedException] {
@@ -211,7 +213,8 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     )
     // Fail only the event source's LLM call; keep the user and agent talking (never ending) so the
     // event-source failure is the only thing that can stop the run.
-    val llm: Llm = prompt =>
+    val llm: Llm = (system, messages) =>
+      val prompt = (system +: messages.map(_.content)).mkString("\n")
       if prompt.contains("simulated event source") then
         CompletableFuture.failedFuture(new IllegalStateException("event source down"))
       else CompletableFuture.completedFuture("I need help with my order.")
@@ -260,7 +263,7 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
   }
 
   test("a participant LLM that throws synchronously fails the run as a harness failure") {
-    val llm: Llm = _ => throw new IllegalStateException("sync llm boom")
+    val llm: Llm = (_, _) => throw new IllegalStateException("sync llm boom")
     val agent: SimpleAgent = (_, _, _) => CompletableFuture.completedFuture(AgentReply.end())
     val ex = intercept[SimulationFailedException] {
       evalon.runSimple(scenario("raw-sync-llm"), agent, llm, failFastOptions)
@@ -270,7 +273,7 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
   }
 
   test("a participant LLM that returns null fails the run as a harness failure") {
-    val llm: Llm = _ => null
+    val llm: Llm = (_, _) => null
     val agent: SimpleAgent = (_, _, _) => CompletableFuture.completedFuture(AgentReply.end())
     val ex = intercept[SimulationFailedException] {
       evalon.runSimple(scenario("raw-null-llm"), agent, llm, failFastOptions)

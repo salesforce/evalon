@@ -87,6 +87,9 @@ object SimulatedParticipant:
     val conv = conversations.get(conversation)
     val others = conv.map(_.between.filter(_ != config.name).mkString(", ")).getOrElse("unknown")
 
+    // Surface the participant's *other* active conversations so it has cross-conversation context.
+    // Only threads with at least one message are included; empty when this is the participant's
+    // only conversation with any history (e.g. the first turn), so it appends nothing.
     val contextSection = history.collect {
       case (convName, convHistory) if convName != conversation && convHistory.nonEmpty =>
         val otherParticipants = conversations
@@ -105,18 +108,18 @@ object SimulatedParticipant:
         s"$template\n\n$endInstruction$contextSection"
       case None =>
         s"""You are role-playing as a simulated participant.
-
-Your name/role: ${config.name}
-Your persona: ${config.persona}
-Your goal: ${config.goal}
-
-You are currently responding in the "$conversation" conversation with: $others
-Address your response to them. Do NOT address participants from other conversations here.
-Stay in character. Respond naturally based on the conversation so far.
-
-$endInstruction
-
-Respond with only your message content. Your output is delivered to the other party as-is.$contextSection"""
+        |
+        |Your name/role: ${config.name}
+        |Your persona: ${config.persona}
+        |Your goal: ${config.goal}
+        |
+        |You are currently responding in the "$conversation" conversation with: $others
+        |Address your response to them. Do NOT address participants from other conversations here.
+        |Stay in character. Respond naturally based on the conversation so far.
+        |
+        |$endInstruction
+        |
+        |Respond with only your message content. Your output is delivered to the other party as-is.$contextSection""".stripMargin
 
   type Cmd = Participant.Command | LlmResult | ThinkingComplete.type
 
