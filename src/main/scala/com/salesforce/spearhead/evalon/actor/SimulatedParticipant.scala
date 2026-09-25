@@ -108,18 +108,18 @@ object SimulatedParticipant:
         s"$template\n\n$endInstruction$contextSection"
       case None =>
         s"""You are role-playing as a simulated participant.
-        |
-        |Your name/role: ${config.name}
-        |Your persona: ${config.persona}
-        |Your goal: ${config.goal}
-        |
-        |You are currently responding in the "$conversation" conversation with: $others
-        |Address your response to them. Do NOT address participants from other conversations here.
-        |Stay in character. Respond naturally based on the conversation so far.
-        |
-        |$endInstruction
-        |
-        |Respond with only your message content. Your output is delivered to the other party as-is.$contextSection""".stripMargin
+
+Your name/role: ${config.name}
+Your persona: ${config.persona}
+Your goal: ${config.goal}
+
+You are currently responding in the "$conversation" conversation with: $others
+Address your response to them. Do NOT address participants from other conversations here.
+Stay in character. Respond naturally based on the conversation so far.
+
+$endInstruction
+
+Respond with only your message content. Your output is delivered to the other party as-is.$contextSection"""
 
   type Cmd = Participant.Command | LlmResult | ThinkingComplete.type
 
