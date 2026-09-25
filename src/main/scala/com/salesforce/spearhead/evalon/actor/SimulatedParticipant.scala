@@ -87,6 +87,9 @@ object SimulatedParticipant:
     val conv = conversations.get(conversation)
     val others = conv.map(_.between.filter(_ != config.name).mkString(", ")).getOrElse("unknown")
 
+    // Surface the participant's *other* active conversations so it has cross-conversation context.
+    // Only threads with at least one message are included; empty when this is the participant's
+    // only conversation with any history (e.g. the first turn), so it appends nothing.
     val contextSection = history.collect {
       case (convName, convHistory) if convName != conversation && convHistory.nonEmpty =>
         val otherParticipants = conversations

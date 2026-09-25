@@ -17,7 +17,7 @@
 
 package com.salesforce.spearhead.evalon.eval
 
-import java.util.concurrent.CompletableFuture
+import java.util.concurrent.{CompletableFuture, Executors}
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.*
@@ -31,7 +31,8 @@ import com.salesforce.spearhead.evalon.model.*
 class EvaluatorTest extends AnyFunSuite:
 
   test("judge parses JSON from Llm and scores weighted criteria") {
-    val llm: Llm = prompt =>
+    val llm: Llm = (_, messages) =>
+      val prompt = messages.map(_.content).mkString("\n")
       val text =
         if prompt.contains("confirmed with the user") then
           """{"passed": false, "score": 0.0, "reasoning": "missed confirmation"}"""
@@ -71,34 +72,11 @@ class EvaluatorTest extends AnyFunSuite:
     assert(result.criterionResults.size == 2)
   }
 
-  test("Llm.blocking wraps a synchronous function") {
-    val llm = Llm.blocking(identity)
-    val text = Await.result(llm.completeAsync("hello"), 5.seconds)
-    assert(text == "hello")
-  }
-
-  test("toPrompt flattens system and turns into one string") {
-    val prompt = Llm.toPrompt("You are a judge.", List(ChatMessage.user("score this")))
-    assert(prompt == "You are a judge.\n\nuser: score this")
-  }
-
-  test("default completeChat flattens to complete") {
-    val llm: Llm = prompt => CompletableFuture.completedFuture(prompt)
-    val text = Await.result(
-      llm.completeAsync("You are a judge.", List(ChatMessage.user("score this"))),
-      5.seconds
-    )
-    assert(text == "You are a judge.\n\nuser: score this")
-  }
-
-  test("completeAsync(system, messages) uses completeChat, not flattened complete") {
+  test("completeAsync(system, messages) passes through to completeChat unchanged") {
     val received = scala.collection.mutable.ListBuffer.empty[(String, List[ChatMessage])]
-    val llm = new Llm:
-      def complete(prompt: String) =
-        CompletableFuture.completedFuture(s"flat:$prompt")
-      override def completeChat(system: String, messages: List[ChatMessage]) =
-        received += ((system, messages))
-        CompletableFuture.completedFuture("structured")
+    val llm: Llm = (system, messages) =>
+      received += ((system, messages))
+      CompletableFuture.completedFuture("structured")
 
     val text = Await.result(
       llm.completeAsync("sys", List(ChatMessage.user("hi"))),
@@ -108,10 +86,36 @@ class EvaluatorTest extends AnyFunSuite:
     assert(received.toList == List(("sys", List(ChatMessage.user("hi")))))
   }
 
+  test("Llm.blocking wraps a synchronous chat function and hands it a java.util.List") {
+    // The lambda is what a Java client writes: (system, messages) -> text, iterating messages as a
+    // java.util.List. It owns any flattening; evalon does none.
+    val llm = Llm.blocking { (system, messages) =>
+      s"$system|${messages.size}|${messages.get(0).getContent}"
+    }
+    val text = Await.result(
+      llm.completeAsync("sys", List(ChatMessage.user("hi"), ChatMessage.assistant("yo"))),
+      5.seconds
+    )
+    assert(text == "sys|2|hi")
+  }
+
+  test("Llm.blocking runs the client on a caller-supplied executor, not the calling thread") {
+    val exec = Executors.newSingleThreadExecutor { r =>
+      val t = Thread(r, "test-blocking-pool")
+      t.setDaemon(true)
+      t
+    }
+    try
+      val llm = Llm.blocking((_, _) => Thread.currentThread().getName, exec)
+      val ranOn = Await.result(llm.completeAsync("s", List(ChatMessage.user("hi"))), 5.seconds)
+      assert(ranOn == "test-blocking-pool")
+    finally exec.shutdown()
+  }
+
   test("non-empty evalPromptTemplate replaces the default judge system prompt") {
     var captured: String = null
-    val llm: Llm = prompt =>
-      captured = prompt
+    val llm: Llm = (_, messages) =>
+      captured = messages.map(_.content).mkString("\n")
       CompletableFuture.completedFuture("""{"passed":true,"reasoning":"ok"}""")
 
     val scenario = Scenario(
@@ -136,8 +140,8 @@ class EvaluatorTest extends AnyFunSuite:
 
   test("empty evalPromptTemplate keeps the default judge system prompt") {
     var captured: String = null
-    val llm: Llm = prompt =>
-      captured = prompt
+    val llm: Llm = (_, messages) =>
+      captured = messages.map(_.content).mkString("\n")
       CompletableFuture.completedFuture("""{"passed":true,"reasoning":"ok"}""")
 
     val scenario = Scenario(
@@ -161,7 +165,8 @@ class EvaluatorTest extends AnyFunSuite:
 
   test("evaluate issues one LLM call per criterion") {
     val prompts = scala.collection.mutable.ListBuffer.empty[String]
-    val llm: Llm = prompt =>
+    val llm: Llm = (_, messages) =>
+      val prompt = messages.map(_.content).mkString("\n")
       prompts += prompt
       val json =
         if prompt.contains("first") then """{"passed":true,"reasoning":"a"}"""
@@ -186,7 +191,7 @@ class EvaluatorTest extends AnyFunSuite:
   }
 
   test("passThreshold overrides LLM passed using score") {
-    val llm: Llm = _ =>
+    val llm: Llm = (_, _) =>
       CompletableFuture.completedFuture("""{"passed": true, "score": 0.4, "reasoning": "weak"}""")
     val scenario = Scenario(
       name = "threshold",

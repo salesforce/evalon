@@ -111,7 +111,7 @@ Evaluate the agent's performance against this criterion. Use the ground truth da
 $outputFormatPrompt"""
 
       Future {
-        llm.completeAsync(fullPrompt)
+        llm.completeAsync("", List(ChatMessage.user(fullPrompt)))
       }.flatten.map(parseCriterionResult(criterion, _))
     }
 
