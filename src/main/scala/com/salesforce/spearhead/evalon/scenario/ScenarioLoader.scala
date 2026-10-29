@@ -28,11 +28,51 @@ object ScenarioLoader:
 
   private val reservedNames = Set("user", "assistant")
 
+  /** Checks a scenario for configurations that crash or misclassify failures at runtime. Run by
+    * {@link #load} and again by {@code EvalonRunner} before a simulation starts, so scenarios built
+    * directly in code are covered too.
+    */
+  def validateScenario(scenario: Scenario): Either[String, Unit] =
+    for
+      _ <- validateEventSourceNames(scenario)
+      _ <- validateObserverParticipants(scenario)
+    yield ()
+
+  private def validateEventSourceNames(scenario: Scenario): Either[String, Unit] =
+    val participantNames = scenario.participants.keySet
+    val eventSourceNames = scenario.eventSources.map(_.name).toSet
+    val collisions = participantNames.intersect(eventSourceNames)
+    if collisions.nonEmpty then
+      Left(
+        s"Event source name(s) collide with participant name(s): ${collisions.mkString(", ")}. " +
+          "Event sources and participants must have distinct names to avoid failure misclassification."
+      )
+    else Right(())
+
+  private def validateObserverParticipants(scenario: Scenario): Either[String, Unit] =
+    // Only evaluated participants need a conversation to reply in: EvaluatedAgent replies on its
+    // first direct conversation, while simulated participants ignore observed events.
+    val evaluated = scenario.participants.collect {
+      case (name, p) if p.participantType == ParticipantType.Evaluated => name
+    }.toSet
+    val observers = scenario.observations.map(_.participant).toSet.intersect(evaluated)
+    val conversationParticipants = scenario.conversations
+      .flatMap(_.between)
+      .toSet
+    val observerOnlyParticipants = observers.diff(conversationParticipants)
+    if observerOnlyParticipants.nonEmpty then
+      Left(
+        s"Evaluated participant(s) are observers but not in any conversation: ${observerOnlyParticipants.mkString(", ")}. " +
+          "An evaluated observer must also participate in at least one conversation to have a place to respond."
+      )
+    else Right(())
+
   def load(path: Path): Either[String, Scenario] =
     val yamlString = Files.readString(path)
     for
       json <- parser.parse(yamlString).left.map(_.getMessage)
       scenario <- decodeScenario(json)
+      _ <- validateScenario(scenario)
     yield scenario
 
   private def decodeScenario(json: Json): Either[String, Scenario] =

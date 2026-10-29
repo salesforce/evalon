@@ -55,6 +55,9 @@ final class EvalonRunner(system: ActorSystem[SpawnProtocol.Command]):
     run(scenario, agentImpl, llm, options)
 
   def run(scenario: Scenario, agent: Agent, llm: Llm, options: EvalonRunOptions): EvalonResult =
+    ScenarioLoader.validateScenario(scenario).left.foreach { e =>
+      throw IllegalArgumentException(s"Invalid scenario: $e")
+    }
     val ec = options.executionContext
     val timeout = Timeout(options.getSimulationTimeout.toScala)
     val runName = s"run-${runSeq.incrementAndGet()}"
