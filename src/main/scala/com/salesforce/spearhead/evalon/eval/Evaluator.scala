@@ -67,11 +67,16 @@ ${criterion.criterionType match
     case CriterionType.Binary => "This criterion is binary (passed/failed)."
     case CriterionType.Scored => "This criterion is scored (0.0 to 1.0)."
     case CriterionType.Rubric =>
-      "This criterion is a rubric. Pick the level that best matches the transcript."
+      """This criterion is a rubric. Its levels are defined in the criterion text above.
+Pick the one level that best matches the transcript."""
 }
 """
       val toolSection =
         if criterion.requireToolCall then s"$toolCallVerificationPrompt\n" else ""
+      val rubricPassedField =
+        if criterion.requireToolCall then
+          "- passed: true if the required tool call is found, false if it is not.\n"
+        else ""
       val outputFormatPrompt = criterion.criterionType match
         case CriterionType.Binary =>
           """# Response Format
@@ -79,6 +84,17 @@ ${criterion.criterionType match
 Return valid JSON only, with these fields:
 - passed: boolean
 - reasoning: string (brief explanation)
+
+Do not add any other fields. Do not wrap in markdown."""
+        case CriterionType.Rubric =>
+          s"""# Response Format
+
+Return valid JSON only, with these fields:
+- score: number. Use the score written next to the chosen level in the criterion, exactly as written.
+  Only return a score that appears in the criterion's levels. Do not return a value between levels.
+  Do not rescale it to 0 to 1.
+  If the levels have no scores, give the chosen level a score from 0 (lowest level) to 1 (highest level).
+${rubricPassedField}- reasoning: string (brief explanation)
 
 Do not add any other fields. Do not wrap in markdown."""
         case _ =>
@@ -149,6 +165,8 @@ $outputFormatPrompt"""
       case CriterionType.Binary =>
         val passed = c.downField("passed").as[Boolean].getOrElse(false)
         (passed, if passed then 1.0 else 0.0)
+      case CriterionType.Rubric =>
+        return parseRubricResult(criterion, c, reasoning, Option(response).getOrElse(""))
       case _ =>
         val score = c.downField("score").as[Double].getOrElse(0.0)
         val passed = criterion.passThreshold match
@@ -161,6 +179,58 @@ $outputFormatPrompt"""
       reasoning = reasoning,
       score = score,
     )
+
+  /** Rubric `passed` is `score >= passThreshold`. The judge's own `passed` is read only when a tool
+    * call is required: anything but `true` means the call was not found. An invalid score fails the
+    * criterion with an explicit reason.
+    */
+  private def parseRubricResult(
+      criterion: EvalCriterion,
+      c: HCursor,
+      reasoning: String,
+      response: String,
+  ): CriterionResult =
+    // circe decodes a JSON null as NaN.
+    val score = c.downField("score").as[Double].toOption.filter(_.isFinite)
+    val toolCallMissing =
+      criterion.requireToolCall && !c.downField("passed").as[Boolean].toOption.contains(true)
+    (score, criterion.passThreshold) match
+      case _ if Option(criterion.description).forall(_.trim.isEmpty) =>
+        CriterionResult(
+          criterion = criterion,
+          passed = false,
+          reasoning = "Rubric criterion has no description with its levels.",
+          score = 0.0,
+        )
+      case _ if toolCallMissing =>
+        CriterionResult(
+          criterion = criterion,
+          passed = false,
+          reasoning = if reasoning.trim.nonEmpty then reasoning else "Required tool call not found.",
+          score = score.getOrElse(0.0),
+        )
+      case (None, _) =>
+        val detail = if reasoning.trim.nonEmpty then reasoning else response.take(200)
+        CriterionResult(
+          criterion = criterion,
+          passed = false,
+          reasoning = s"Invalid judge response: score missing or not a number. $detail".trim,
+          score = 0.0,
+        )
+      case (Some(s), Some(threshold)) =>
+        CriterionResult(
+          criterion = criterion,
+          passed = s >= threshold,
+          reasoning = reasoning,
+          score = s,
+        )
+      case (Some(s), None) =>
+        CriterionResult(
+          criterion = criterion,
+          passed = false,
+          reasoning = s"Rubric criterion has no passThreshold. $reasoning".trim,
+          score = s,
+        )
 
   private def formatTranscript(transcript: Transcript): String =
     transcript.entries.map { entry =>
