@@ -1,4 +1,6 @@
-# Evalon Core
+# Evalon
+
+> Eval on the whole scene, as it unfolds.
 
 Actor-based agent evaluation framework with simulation and LLM-as-judge scoring. Built with Scala 3 and Apache Pekko.
 
