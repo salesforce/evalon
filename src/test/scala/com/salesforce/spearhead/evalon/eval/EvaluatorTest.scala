@@ -166,7 +166,8 @@ class EvaluatorTest extends AnyFunSuite:
     val prompts = scala.collection.mutable.ListBuffer.empty[String]
     val llm: Llm = (_, messages) =>
       val prompt = messages.map(_.content).mkString("\n")
-      prompts += prompt
+      // Criteria are judged concurrently, so guard the non-thread-safe buffer.
+      prompts.synchronized { prompts += prompt }
       val json =
         if prompt.contains("first") then """{"passed":true,"reasoning":"a"}"""
         else """{"passed":false,"reasoning":"b"}"""
