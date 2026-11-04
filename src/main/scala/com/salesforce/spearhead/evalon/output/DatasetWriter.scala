@@ -18,11 +18,11 @@
 package com.salesforce.spearhead.evalon.output
 
 import java.nio.file.{Files, Path}
-import java.time.{Instant, ZoneOffset}
 import java.time.format.DateTimeFormatter
+import java.time.{Instant, ZoneOffset}
 
-import io.circe.{Encoder, Json}
 import io.circe.syntax.*
+import io.circe.{Encoder, Json}
 
 import com.salesforce.spearhead.evalon.model.{EvalResult, Scenario, Transcript}
 

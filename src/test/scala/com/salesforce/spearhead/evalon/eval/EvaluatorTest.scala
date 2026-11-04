@@ -19,9 +19,9 @@ package com.salesforce.spearhead.evalon.eval
 
 import java.util.concurrent.{CompletableFuture, Executors}
 
+import scala.concurrent.Await
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.*
-import scala.concurrent.Await
 
 import org.scalatest.funsuite.AnyFunSuite
 

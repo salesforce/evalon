@@ -23,8 +23,8 @@ import java.util.concurrent.atomic.AtomicLong
 import scala.concurrent.Await
 import scala.jdk.DurationConverters.*
 
-import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Props, SpawnProtocol}
 import org.apache.pekko.actor.typed.scaladsl.AskPattern.*
+import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Props, SpawnProtocol}
 import org.apache.pekko.util.Timeout
 
 import com.salesforce.spearhead.evalon.actor.ScenarioRunner

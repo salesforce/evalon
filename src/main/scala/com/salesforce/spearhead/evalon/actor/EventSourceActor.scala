@@ -22,8 +22,8 @@ import scala.util.{Failure, Success}
 import io.circe.*
 import io.circe.parser.*
 import io.circe.syntax.*
-import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
+import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
 import com.salesforce.spearhead.evalon.llm.{ChatMessage, Llm}
 import com.salesforce.spearhead.evalon.model.{Event, EventSourceConfig, TranscriptEntry}

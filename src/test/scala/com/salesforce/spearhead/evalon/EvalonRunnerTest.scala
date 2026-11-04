@@ -21,8 +21,8 @@ import java.time.Duration
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.atomic.AtomicInteger
 
-import scala.concurrent.{Await, Future}
 import scala.concurrent.duration.*
+import scala.concurrent.{Await, Future}
 
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.funsuite.AnyFunSuite
@@ -282,7 +282,7 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
   }
 
   test("event source name colliding with participant name is rejected at load") {
-    import java.nio.file.{Files, Path}
+    import java.nio.file.Files
     val yaml = """
       |name: collision-test
       |description: test event source name collision
@@ -314,7 +314,7 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
   }
 
   test("evaluated observer with no direct conversation is rejected at load") {
-    import java.nio.file.{Files, Path}
+    import java.nio.file.Files
     val yaml = """
       |name: observer-only-test
       |description: test evaluated observer with no conversations
@@ -347,7 +347,7 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
   }
 
   test("simulated observer with no direct conversation is still accepted at load") {
-    import java.nio.file.{Files, Path}
+    import java.nio.file.Files
     val yaml = """
       |name: simulated-observer-test
       |description: simulated observers ignore observed events
