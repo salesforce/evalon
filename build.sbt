@@ -27,6 +27,9 @@ lazy val root = (project in file("."))
   .settings(
     name := "evalon",
     scalaVersion := "3.9.0",
+    // Required by scalafix OrganizeImports (removeUnused needs unused-import warnings).
+    semanticdbEnabled := true,
+    scalacOptions += "-Wunused:imports",
     headerLicense := Some(HeaderLicense.Custom(
       """|Copyright (c) 2025, Salesforce, Inc.
          |SPDX-License-Identifier: Apache-2
