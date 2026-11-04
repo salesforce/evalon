@@ -23,7 +23,7 @@ import io.circe.*
 import io.circe.parser.*
 import io.circe.syntax.*
 
-import com.salesforce.spearhead.evalon.llm.{Llm, ChatMessage}
+import com.salesforce.spearhead.evalon.llm.{ChatMessage, Llm}
 import com.salesforce.spearhead.evalon.model.*
 
 /** LLM-as-judge evaluator that scores agent performance against criteria. */
@@ -64,12 +64,12 @@ Respond with valid JSON only, in this format:
       val criterionPrompt = s"""## Evaluation Criterion
 ${criterion.description}
 ${criterion.criterionType match
-    case CriterionType.Binary => "This criterion is binary (passed/failed)."
-    case CriterionType.Scored => "This criterion is scored (0.0 to 1.0)."
-    case CriterionType.Rubric =>
-      """This criterion is a rubric. Its levels are defined in the criterion text above.
+          case CriterionType.Binary => "This criterion is binary (passed/failed)."
+          case CriterionType.Scored => "This criterion is scored (0.0 to 1.0)."
+          case CriterionType.Rubric =>
+            """This criterion is a rubric. Its levels are defined in the criterion text above.
 Pick the one level that best matches the transcript."""
-}
+        }
 """
       val toolSection =
         if criterion.requireToolCall then s"$toolCallVerificationPrompt\n" else ""
@@ -137,17 +137,17 @@ $outputFormatPrompt"""
         if totalWeight > 0 then
           criterionResults.map(cr => cr.score * cr.criterion.weight).sum / totalWeight
         else 0.0
-      val overallPassed = 
-        if criterionResults.isEmpty then 
+      val overallPassed =
+        if criterionResults.isEmpty then
           false // no criteria to evaluate, so we can't say if the overall result is passed
         else criterionResults.forall(_.passed)
-      
+
       EvalResult(
         scenarioName = scenario.name,
         criterionResults = criterionResults,
         overallScore = overallScore,
         overallPassed = overallPassed,
-        summary = criterionResults.map(_.reasoning).filter(_.nonEmpty).mkString("; "),
+        summary = criterionResults.map(_.reasoning).filter(_.nonEmpty).mkString("; ")
       )
     }
 
@@ -177,18 +177,19 @@ $outputFormatPrompt"""
       criterion = criterion,
       passed = passed,
       reasoning = reasoning,
-      score = score,
+      score = score
     )
 
-  /** Rubric `passed` is `score >= passThreshold`. The judge's own `passed` is read only when a tool
-    * call is required: anything but `true` means the call was not found. An invalid score fails the
-    * criterion with an explicit reason.
-    */
+  /**
+   * Rubric `passed` is `score >= passThreshold`. The judge's own `passed` is read only when a tool
+   * call is required: anything but `true` means the call was not found. An invalid score fails the
+   * criterion with an explicit reason.
+   */
   private def parseRubricResult(
       criterion: EvalCriterion,
       c: HCursor,
       reasoning: String,
-      response: String,
+      response: String
   ): CriterionResult =
     // circe decodes a JSON null as NaN.
     val score = c.downField("score").as[Double].toOption.filter(_.isFinite)
@@ -200,14 +201,15 @@ $outputFormatPrompt"""
           criterion = criterion,
           passed = false,
           reasoning = "Rubric criterion has no description with its levels.",
-          score = 0.0,
+          score = 0.0
         )
       case _ if toolCallMissing =>
         CriterionResult(
           criterion = criterion,
           passed = false,
-          reasoning = if reasoning.trim.nonEmpty then reasoning else "Required tool call not found.",
-          score = score.getOrElse(0.0),
+          reasoning =
+            if reasoning.trim.nonEmpty then reasoning else "Required tool call not found.",
+          score = score.getOrElse(0.0)
         )
       case (None, _) =>
         val detail = if reasoning.trim.nonEmpty then reasoning else response.take(200)
@@ -215,40 +217,43 @@ $outputFormatPrompt"""
           criterion = criterion,
           passed = false,
           reasoning = s"Invalid judge response: score missing or not a number. $detail".trim,
-          score = 0.0,
+          score = 0.0
         )
       case (Some(s), Some(threshold)) =>
         CriterionResult(
           criterion = criterion,
           passed = s >= threshold,
           reasoning = reasoning,
-          score = s,
+          score = s
         )
       case (Some(s), None) =>
         CriterionResult(
           criterion = criterion,
           passed = false,
           reasoning = s"Rubric criterion has no passThreshold. $reasoning".trim,
-          score = s,
+          score = s
         )
 
   private def formatTranscript(transcript: Transcript): String =
-    transcript.entries.map { entry =>
-      val conv = entry.conversation.map(c => s" ($c)").getOrElse("")
-      entry.message.map { m =>
-        val line = s"[${m.sender}]$conv: ${m.content}"
-        m.trace.fold(line)(j => s"$line\n[trace] ${j.noSpaces}")
+    transcript.entries
+      .map { entry =>
+        val conv = entry.conversation.map(c => s" ($c)").getOrElse("")
+        entry.message
+          .map { m =>
+            val line = s"[${m.sender}]$conv: ${m.content}"
+            m.trace.fold(line)(j => s"$line\n[trace] ${j.noSpaces}")
+          }
+          .orElse(entry.toolCall.map { tc =>
+            s"[tool_call] ${tc.toolName}(${tc.arguments.asJson.noSpaces})"
+          })
+          .orElse(entry.toolResult.map { tr =>
+            tr.error match
+              case Some(e) => s"[tool_error] $e"
+              case None => s"[tool_result] ${tr.result.noSpaces}"
+          })
+          .orElse(entry.event.map { e =>
+            s"[event] ${e.name}: ${e.data.asJson.noSpaces}"
+          })
+          .getOrElse("")
       }
-        .orElse(entry.toolCall.map { tc =>
-          s"[tool_call] ${tc.toolName}(${tc.arguments.asJson.noSpaces})"
-        })
-        .orElse(entry.toolResult.map { tr =>
-          tr.error match
-            case Some(e) => s"[tool_error] $e"
-            case None    => s"[tool_result] ${tr.result.noSpaces}"
-        })
-        .orElse(entry.event.map { e =>
-          s"[event] ${e.name}: ${e.data.asJson.noSpaces}"
-        })
-        .getOrElse("")
-    }.mkString("\n")
+      .mkString("\n")

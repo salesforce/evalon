@@ -21,11 +21,11 @@ import io.circe.*
 import io.circe.syntax.*
 
 case class CreateMessageRequest(
-  model: String,
-  maxTokens: Int,
-  system: String,
-  messages: List[Json],
-  tools: List[Json] = Nil,
+    model: String,
+    maxTokens: Int,
+    system: String,
+    messages: List[Json],
+    tools: List[Json] = Nil
 )
 
 object CreateMessageRequest:
@@ -34,7 +34,7 @@ object CreateMessageRequest:
       "model" -> r.model.asJson,
       "max_tokens" -> r.maxTokens.asJson,
       "system" -> r.system.asJson,
-      "messages" -> r.messages.asJson,
+      "messages" -> r.messages.asJson
     )
     if r.tools.nonEmpty then base.deepMerge(Json.obj("tools" -> r.tools.asJson))
     else base
@@ -71,10 +71,10 @@ object ContentBlock:
   }
 
 case class CreateMessageResponse(
-  id: String,
-  content: List[ContentBlock],
-  stopReason: String,
-  usage: Usage,
+    id: String,
+    content: List[ContentBlock],
+    stopReason: String,
+    usage: Usage
 )
 
 object CreateMessageResponse:

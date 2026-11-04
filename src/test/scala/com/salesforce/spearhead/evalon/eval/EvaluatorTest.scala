@@ -25,7 +25,7 @@ import scala.concurrent.Await
 
 import org.scalatest.funsuite.AnyFunSuite
 
-import com.salesforce.spearhead.evalon.llm.{Llm, ChatMessage}
+import com.salesforce.spearhead.evalon.llm.{ChatMessage, Llm}
 import com.salesforce.spearhead.evalon.model.*
 
 class EvaluatorTest extends AnyFunSuite:
@@ -36,8 +36,7 @@ class EvaluatorTest extends AnyFunSuite:
       val text =
         if prompt.contains("confirmed with the user") then
           """{"passed": false, "score": 0.0, "reasoning": "missed confirmation"}"""
-        else
-          """{"passed": true, "score": 1.0, "reasoning": "rebooked"}"""
+        else """{"passed": true, "score": 1.0, "reasoning": "rebooked"}"""
       CompletableFuture.completedFuture(text)
 
     val scenario = Scenario(
@@ -51,15 +50,15 @@ class EvaluatorTest extends AnyFunSuite:
           description = "rebooked the flight",
           criterionType = CriterionType.Binary,
           requireToolCall = true,
-          weight = 2.0,
+          weight = 2.0
         ),
         EvalCriterion(
           name = "confirmed",
           description = "confirmed with the user",
           criterionType = CriterionType.Binary,
           requireToolCall = false,
-          weight = 1.0,
-        ),
+          weight = 1.0
+        )
       )
     )
 
@@ -128,10 +127,10 @@ class EvaluatorTest extends AnyFunSuite:
           name = "ok",
           description = "ok",
           criterionType = CriterionType.Binary,
-          requireToolCall = false,
+          requireToolCall = false
         )
       ),
-      evalPromptTemplate = Some("  Judge only tool use.  "),
+      evalPromptTemplate = Some("  Judge only tool use.  ")
     )
     Await.result(Evaluator(llm).evaluate(scenario, Transcript()), 5.seconds)
     assert(captured.startsWith("Judge only tool use."))
@@ -154,10 +153,10 @@ class EvaluatorTest extends AnyFunSuite:
           name = "ok",
           description = "ok",
           criterionType = CriterionType.Binary,
-          requireToolCall = false,
+          requireToolCall = false
         )
       ),
-      evalPromptTemplate = Some("   "),
+      evalPromptTemplate = Some("   ")
     )
     Await.result(Evaluator(llm).evaluate(scenario, Transcript()), 5.seconds)
     assert(captured.startsWith("You are an expert evaluator"))
@@ -180,8 +179,8 @@ class EvaluatorTest extends AnyFunSuite:
       conversations = Nil,
       evalCriteria = List(
         EvalCriterion("c1", "first", CriterionType.Binary, requireToolCall = false),
-        EvalCriterion("c2", "second", CriterionType.Binary, requireToolCall = false),
-      ),
+        EvalCriterion("c2", "second", CriterionType.Binary, requireToolCall = false)
+      )
     )
     val result = Await.result(Evaluator(llm).evaluate(scenario, Transcript()), 5.seconds)
     assert(prompts.size == 2)
@@ -204,9 +203,9 @@ class EvaluatorTest extends AnyFunSuite:
           description = "quality",
           criterionType = CriterionType.Scored,
           requireToolCall = false,
-          passThreshold = Some(0.7),
+          passThreshold = Some(0.7)
         )
-      ),
+      )
     )
     val result = Await.result(Evaluator(llm).evaluate(scenario, Transcript()), 5.seconds)
     assert(!result.criterionResults.head.passed)
@@ -223,20 +222,20 @@ class EvaluatorTest extends AnyFunSuite:
 
   private def rubricCriterion(
       passThreshold: Option[Double] = Some(0.75),
-      requireToolCall: Boolean = false,
+      requireToolCall: Boolean = false
   ): EvalCriterion =
     EvalCriterion(
       name = "clarity",
       description = rubricLadder,
       criterionType = CriterionType.Rubric,
       requireToolCall = requireToolCall,
-      passThreshold = passThreshold,
+      passThreshold = passThreshold
     )
 
   private def judgeOnce(
       criterion: EvalCriterion,
       reply: String,
-      template: Option[String] = None,
+      template: Option[String] = None
   ): (CriterionResult, String) =
     var captured: String = null
     val llm: Llm = (_, messages) =>
@@ -248,7 +247,7 @@ class EvaluatorTest extends AnyFunSuite:
       participants = Map.empty,
       conversations = Nil,
       evalCriteria = List(criterion),
-      evalPromptTemplate = template,
+      evalPromptTemplate = template
     )
     val result = Await.result(Evaluator(llm).evaluate(scenario, Transcript()), 5.seconds)
     (result.criterionResults.head, captured)
@@ -289,7 +288,7 @@ class EvaluatorTest extends AnyFunSuite:
       """{"score":null,"reasoning":"r"}""",
       """{"score":"high","reasoning":"r"}""",
       """{"score":1e400,"reasoning":"r"}""",
-      """{"score":-1e400,"reasoning":"r"}""",
+      """{"score":-1e400,"reasoning":"r"}"""
     )
     replies.foreach { reply =>
       val r = rubricResult(reply, Some(-10.0))
@@ -359,7 +358,7 @@ class EvaluatorTest extends AnyFunSuite:
       assert(r.score == 0.0, s"[$description]")
       assert(
         r.reasoning == "Rubric criterion has no description with its levels.",
-        s"[$description]",
+        s"[$description]"
       )
     }
   }
@@ -378,9 +377,15 @@ class EvaluatorTest extends AnyFunSuite:
       assert(prompt.contains(rubricLadder))
       assert(prompt.contains("This criterion is a rubric. Its levels are defined in the criterion"))
       assert(prompt.contains("Pick the one level that best matches the transcript."))
-      assert(prompt.contains("Use the score written next to the chosen level in the criterion, exactly as written."))
+      assert(
+        prompt.contains(
+          "Use the score written next to the chosen level in the criterion, exactly as written."
+        )
+      )
       assert(prompt.contains("Only return a score that appears in the criterion's levels."))
-      assert(prompt.contains("Do not return a value between levels.\n  Do not rescale it to 0 to 1."))
+      assert(
+        prompt.contains("Do not return a value between levels.\n  Do not rescale it to 0 to 1.")
+      )
       assert(
         prompt.contains(
           "If the levels have no scores, give the chosen level a score from 0 (lowest level) to 1 (highest level)."
@@ -411,7 +416,7 @@ class EvaluatorTest extends AnyFunSuite:
       description = "tone",
       criterionType = CriterionType.Scored,
       requireToolCall = true,
-      passThreshold = Some(0.7),
+      passThreshold = Some(0.7)
     )
     val (_, prompt) =
       judgeOnce(scored, """{"score":0.8,"reasoning":"ok"}""", Some("Judge the transcript."))

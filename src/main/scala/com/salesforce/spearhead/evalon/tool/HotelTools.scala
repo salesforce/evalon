@@ -34,10 +34,10 @@ class HotelBookingLookup(context: Json) extends Tool:
     "properties" -> Json.obj(
       "booking_ref" -> Json.obj(
         "type" -> "string".asJson,
-        "description" -> "The hotel booking reference".asJson,
+        "description" -> "The hotel booking reference".asJson
       )
     ),
-    "required" -> List("booking_ref").asJson,
+    "required" -> List("booking_ref").asJson
   )
 
   override def execute(arguments: Map[String, Json]): Future[Json] =
@@ -59,15 +59,15 @@ class HotelCancel(context: Json) extends Tool:
     "properties" -> Json.obj(
       "booking_ref" -> Json.obj(
         "type" -> "string".asJson,
-        "description" -> "The booking reference to cancel".asJson,
+        "description" -> "The booking reference to cancel".asJson
       ),
       "refund_type" -> Json.obj(
         "type" -> "string".asJson,
         "enum" -> List("full", "partial", "credit").asJson,
-        "description" -> "Type of refund to process".asJson,
-      ),
+        "description" -> "Type of refund to process".asJson
+      )
     ),
-    "required" -> List("booking_ref", "refund_type").asJson,
+    "required" -> List("booking_ref", "refund_type").asJson
   )
 
   override def execute(arguments: Map[String, Json]): Future[Json] =
@@ -80,18 +80,20 @@ class HotelCancel(context: Json) extends Tool:
       case Some(booking) =>
         val total = booking.hcursor.downField("total").as[Double].getOrElse(0.0)
         val refundAmount = refundType match
-          case "full"    => total
+          case "full" => total
           case "partial" => total * 0.8
-          case "credit"  => total
-          case _         => 0.0
+          case "credit" => total
+          case _ => 0.0
         val refundMethod =
           if refundType != "credit" then "corporate_card" else "account_credit"
 
-        Future.successful(Json.obj(
-          "status" -> "cancelled".asJson,
-          "booking_ref" -> ref.asJson,
-          "refund_type" -> refundType.asJson,
-          "refund_amount" -> refundAmount.asJson,
-          "refund_method" -> refundMethod.asJson,
-          "message" -> f"Booking $ref cancelled. ${refundType.capitalize} refund of $$$refundAmount%.2f processed.".asJson,
-        ))
+        Future.successful(
+          Json.obj(
+            "status" -> "cancelled".asJson,
+            "booking_ref" -> ref.asJson,
+            "refund_type" -> refundType.asJson,
+            "refund_amount" -> refundAmount.asJson,
+            "refund_method" -> refundMethod.asJson,
+            "message" -> f"Booking $ref cancelled. ${refundType.capitalize} refund of $$$refundAmount%.2f processed.".asJson
+          )
+        )

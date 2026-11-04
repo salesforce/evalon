@@ -52,6 +52,6 @@ object ToolRegistry:
       InitiateCustomerOrderRefundProcess(context),
       ProcessRefund(context),
       GetRefundStatus(context),
-      CancelRefund(context),
+      CancelRefund(context)
     )
     tools.map(t => t.name -> t).toMap

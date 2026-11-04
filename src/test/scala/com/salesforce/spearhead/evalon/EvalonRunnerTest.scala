@@ -88,7 +88,7 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
       sender = "agent",
       content = "hello",
       conversation = Some("chat"),
-      trace = Some(Json.obj("intent" -> "greet".asJson)),
+      trace = Some(Json.obj("intent" -> "greet".asJson))
     )
     val entry = transcript.toJson.asArray.get.head
     assert(entry.hcursor.get[String]("content").toOption.contains("hello"))
@@ -128,8 +128,7 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
   private val judgeAndChatLlm: Llm = (system, messages) =>
     val prompt = (system +: messages.map(_.content)).mkString("\n")
     val text =
-      if prompt.contains("expert evaluator") then
-        """{"passed":true,"reasoning":"ok"}"""
+      if prompt.contains("expert evaluator") then """{"passed":true,"reasoning":"ok"}"""
       else "I need help with my order."
     CompletableFuture.completedFuture(text)
 
@@ -154,8 +153,8 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
   }
 
   test("agent step completing exceptionally fails the run") {
-    val agent: SimpleAgent = (_, _, _) =>
-      CompletableFuture.failedFuture[AgentReply](new IllegalStateException("boom"))
+    val agent: SimpleAgent =
+      (_, _, _) => CompletableFuture.failedFuture[AgentReply](new IllegalStateException("boom"))
     val ex = intercept[AgentStepFailedException] {
       evalon.runSimple(scenario("failed-stage"), agent, judgeAndChatLlm, failFastOptions)
     }
@@ -378,7 +377,8 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
   }
 
   test("a directly constructed scenario with a colliding event source is rejected at run") {
-    val s = scenario("direct-collision", eventSources = List(EventSourceConfig("agent", "simulated")))
+    val s =
+      scenario("direct-collision", eventSources = List(EventSourceConfig("agent", "simulated")))
     val agent: SimpleAgent = (_, _, _) => CompletableFuture.completedFuture(AgentReply.end())
     val ex = intercept[IllegalArgumentException] {
       evalon.runSimple(s, agent, judgeAndChatLlm, failFastOptions)
@@ -386,7 +386,9 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(ex.getMessage.contains("collide"))
   }
 
-  test("a directly constructed scenario with an evaluated observer-only participant is rejected at run") {
+  test(
+    "a directly constructed scenario with an evaluated observer-only participant is rejected at run"
+  ) {
     val base = scenario("direct-observer")
     val s = base.copy(
       participants = Map(

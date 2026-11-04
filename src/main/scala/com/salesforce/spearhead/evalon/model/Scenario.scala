@@ -29,57 +29,57 @@ enum CriterionType:
   case Binary, Scored, Rubric
 
 case class ParticipantConfig(
-  name: String,
-  participantType: ParticipantType = ParticipantType.Simulated,
-  persona: String = "",
-  goal: String = "",
-  template: Option[String] = None,
-  endpoint: Option[String] = None,
-  responseSpeed: Option[ResponseSpeed] = None,
+    name: String,
+    participantType: ParticipantType = ParticipantType.Simulated,
+    persona: String = "",
+    goal: String = "",
+    template: Option[String] = None,
+    endpoint: Option[String] = None,
+    responseSpeed: Option[ResponseSpeed] = None
 )
 
 case class ConversationConfig(
-  name: String,
-  between: List[String],
-  initiatedBy: Option[String] = None,
+    name: String,
+    between: List[String],
+    initiatedBy: Option[String] = None
 )
 
 case class ObservationConfig(
-  participant: String,
-  observes: List[String],
+    participant: String,
+    observes: List[String]
 )
 
 case class EventEmitConfig(
-  event: String,
-  schema: Map[String, String] = Map.empty,
+    event: String,
+    schema: Map[String, String] = Map.empty
 )
 
 case class EventSourceConfig(
-  name: String,
-  sourceType: String, // "simulated" or "custom"
-  description: String = "",
-  emits: List[EventEmitConfig] = Nil,
-  className: Option[String] = None,
+    name: String,
+    sourceType: String, // "simulated" or "custom"
+    description: String = "",
+    emits: List[EventEmitConfig] = Nil,
+    className: Option[String] = None
 )
 
 case class EvalCriterion(
-  name: String,
-  description: String,
-  criterionType: CriterionType,
-  requireToolCall: Boolean,
-  passThreshold: Option[Double] = None,
-  weight: Double = 1.0,
+    name: String,
+    description: String,
+    criterionType: CriterionType,
+    requireToolCall: Boolean,
+    passThreshold: Option[Double] = None,
+    weight: Double = 1.0
 )
 
 case class Scenario(
-  name: String,
-  description: String,
-  participants: Map[String, ParticipantConfig],
-  conversations: List[ConversationConfig],
-  observations: List[ObservationConfig] = Nil,
-  eventSources: List[EventSourceConfig] = Nil,
-  context: Json = Json.obj(),
-  evalCriteria: List[EvalCriterion] = Nil,
-  evalPromptTemplate: Option[String] = None,
-  maxTurns: Int = 20,
+    name: String,
+    description: String,
+    participants: Map[String, ParticipantConfig],
+    conversations: List[ConversationConfig],
+    observations: List[ObservationConfig] = Nil,
+    eventSources: List[EventSourceConfig] = Nil,
+    context: Json = Json.obj(),
+    evalCriteria: List[EvalCriterion] = Nil,
+    evalPromptTemplate: Option[String] = None,
+    maxTurns: Int = 20
 )

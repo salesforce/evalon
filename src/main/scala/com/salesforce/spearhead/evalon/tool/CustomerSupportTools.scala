@@ -33,22 +33,24 @@ class EscalateCustomerCase(context: Json) extends Tool:
     "properties" -> Json.obj(
       "case_number" -> Json.obj(
         "type" -> "string".asJson,
-        "description" -> "The case number to escalate.".asJson,
+        "description" -> "The case number to escalate.".asJson
       ),
       "escalation_reason" -> Json.obj(
         "type" -> "string".asJson,
-        "description" -> "Reason for escalation.".asJson,
-      ),
+        "description" -> "Reason for escalation.".asJson
+      )
     ),
-    "required" -> List("case_number", "escalation_reason").asJson,
+    "required" -> List("case_number", "escalation_reason").asJson
   )
 
   override def execute(arguments: Map[String, Json]): Future[Json] =
     val caseNumber = arguments.get("case_number").flatMap(_.asString).getOrElse("")
     val reason = arguments.get("escalation_reason").flatMap(_.asString).getOrElse("")
-    Future.successful(Json.obj(
-      "escalation_status" -> s"Case $caseNumber escalated to senior agent. Reason: $reason".asJson
-    ))
+    Future.successful(
+      Json.obj(
+        "escalation_status" -> s"Case $caseNumber escalated to senior agent. Reason: $reason".asJson
+      )
+    )
 
 class NotifyCustomerContact(context: Json) extends Tool:
   override def name: String = "notify_customer_contact"
@@ -61,23 +63,25 @@ class NotifyCustomerContact(context: Json) extends Tool:
     "properties" -> Json.obj(
       "contact_email" -> Json.obj(
         "type" -> "string".asJson,
-        "description" -> "The customer contact email address to send the notification to.".asJson,
+        "description" -> "The customer contact email address to send the notification to.".asJson
       ),
       "subject" -> Json.obj(
         "type" -> "string".asJson,
-        "description" -> "Email subject.".asJson,
+        "description" -> "Email subject.".asJson
       ),
       "body" -> Json.obj(
         "type" -> "string".asJson,
-        "description" -> "Email body content.".asJson,
-      ),
+        "description" -> "Email body content.".asJson
+      )
     ),
-    "required" -> List("contact_email", "subject", "body").asJson,
+    "required" -> List("contact_email", "subject", "body").asJson
   )
 
   override def execute(arguments: Map[String, Json]): Future[Json] =
     val email = arguments.get("contact_email").flatMap(_.asString).getOrElse("")
     val subject = arguments.get("subject").flatMap(_.asString).getOrElse("")
-    Future.successful(Json.obj(
-      "notification_status" -> s"Success, email sent to $email with subject: $subject".asJson
-    ))
+    Future.successful(
+      Json.obj(
+        "notification_status" -> s"Success, email sent to $email with subject: $subject".asJson
+      )
+    )

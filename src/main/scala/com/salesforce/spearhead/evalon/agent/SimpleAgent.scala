@@ -44,6 +44,7 @@ final class HistoryTurn(
   def getConversation: String = conversation
   def getSender: String = sender
   def getContent: String = content
+
   /** generation trace for this turn, or empty if none. */
   def getTrace: Optional[String] = trace
 
@@ -56,6 +57,7 @@ final class AgentReply(
   def this(content: String, end: Boolean) = this(content, end, Optional.empty())
   def getContent: String = content
   def isEnd: Boolean = end
+
   /** trace of how this reply was generated, or empty if none. */
   def getTrace: Optional[String] = trace
 
@@ -82,11 +84,9 @@ object SimpleAgent:
           events: List[Event],
           respondIn: String
       ): Future[Action] =
-        val turns = history
-          .collect { case HistoryEntry.Turn(c, s, content, trace) =>
-            HistoryTurn(c, s, content, Optional.ofNullable(trace.map(_.noSpaces).orNull))
-          }
-          .asJava
+        val turns = history.collect { case HistoryEntry.Turn(c, s, content, trace) =>
+          HistoryTurn(c, s, content, Optional.ofNullable(trace.map(_.noSpaces).orNull))
+        }.asJava
         val eventLines = events.map(e => s"${e.name}: ${e.data.asJson.noSpaces}").asJava
         Try(simpleAgent.step(respondIn, turns, eventLines)) match
           case Success(null) =>
@@ -101,7 +101,7 @@ object SimpleAgent:
                   Action.send(
                     agentName,
                     Option(reply.getContent).getOrElse(""),
-                    trace = trace,
+                    trace = trace
                   )
                 }
             }

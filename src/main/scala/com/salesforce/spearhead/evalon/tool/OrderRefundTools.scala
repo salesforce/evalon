@@ -33,10 +33,14 @@ class VerifyCustomerContactIdentity(context: Json) extends Tool:
   override def parametersSchema: Json = Json.obj(
     "type" -> "object".asJson,
     "properties" -> Json.obj(
-      "email" -> Json.obj("type" -> "string".asJson, "description" -> "Customer email address to verify.".asJson),
-      "name" -> Json.obj("type" -> "string".asJson, "description" -> "Customer name to verify.".asJson),
+      "email" -> Json.obj(
+        "type" -> "string".asJson,
+        "description" -> "Customer email address to verify.".asJson
+      ),
+      "name" -> Json
+        .obj("type" -> "string".asJson, "description" -> "Customer name to verify.".asJson)
     ),
-    "required" -> List("email", "name").asJson,
+    "required" -> List("email", "name").asJson
   )
 
   override def execute(arguments: Map[String, Json]): Future[Json] =
@@ -60,16 +64,21 @@ class RetrieveCustomerOrderInformation(context: Json) extends Tool:
   override def parametersSchema: Json = Json.obj(
     "type" -> "object".asJson,
     "properties" -> Json.obj(
-      "order_number" -> Json.obj("type" -> "string".asJson, "description" -> "The customer order number to retrieve.".asJson),
+      "order_number" -> Json.obj(
+        "type" -> "string".asJson,
+        "description" -> "The customer order number to retrieve.".asJson
+      )
     ),
-    "required" -> List("order_number").asJson,
+    "required" -> List("order_number").asJson
   )
 
   override def execute(arguments: Map[String, Json]): Future[Json] =
     val orderNumber = arguments.get("order_number").flatMap(_.asString).getOrElse("")
     orders.get(orderNumber) match
       case None =>
-        Future.successful(Json.obj("order_info" -> "Error: No order found with the provided Order Number".asJson))
+        Future.successful(
+          Json.obj("order_info" -> "Error: No order found with the provided Order Number".asJson)
+        )
       case Some(o) =>
         val c = o.hcursor
         val info = s"""Order Details:
@@ -90,11 +99,18 @@ class VerifyCustomerRefundEligibility(context: Json) extends Tool:
   override def parametersSchema: Json = Json.obj(
     "type" -> "object".asJson,
     "properties" -> Json.obj(
-      "order_name" -> Json.obj("type" -> "string".asJson, "description" -> "The name of the customer order.".asJson),
-      "contact_email" -> Json.obj("type" -> "string".asJson, "description" -> "The email address of the customer contact.".asJson),
-      "verification_status" -> Json.obj("type" -> "string".asJson, "description" -> "Must be \"Verified\" for eligibility check.".asJson),
+      "order_name" -> Json
+        .obj("type" -> "string".asJson, "description" -> "The name of the customer order.".asJson),
+      "contact_email" -> Json.obj(
+        "type" -> "string".asJson,
+        "description" -> "The email address of the customer contact.".asJson
+      ),
+      "verification_status" -> Json.obj(
+        "type" -> "string".asJson,
+        "description" -> "Must be \"Verified\" for eligibility check.".asJson
+      )
     ),
-    "required" -> List("order_name", "contact_email", "verification_status").asJson,
+    "required" -> List("order_name", "contact_email", "verification_status").asJson
   )
 
   override def execute(arguments: Map[String, Json]): Future[Json] =
@@ -105,7 +121,8 @@ class VerifyCustomerRefundEligibility(context: Json) extends Tool:
     if vs != "Verified" then
       Future.successful(Json.obj("eligibility_status" -> "Ineligible".asJson))
     else
-      val order = orders.values.find(o => o.hcursor.downField("name").as[String].contains(orderName))
+      val order =
+        orders.values.find(o => o.hcursor.downField("name").as[String].contains(orderName))
       order match
         case None => Future.successful(Json.obj("eligibility_status" -> "Ineligible".asJson))
         case Some(o) =>
@@ -127,30 +144,38 @@ class CalculateRefundAmount(context: Json) extends Tool:
   override def parametersSchema: Json = Json.obj(
     "type" -> "object".asJson,
     "properties" -> Json.obj(
-      "order_name" -> Json.obj("type" -> "string".asJson, "description" -> "Name of the customer order.".asJson),
+      "order_name" -> Json
+        .obj("type" -> "string".asJson, "description" -> "Name of the customer order.".asJson)
     ),
-    "required" -> List("order_name").asJson,
+    "required" -> List("order_name").asJson
   )
 
   override def execute(arguments: Map[String, Json]): Future[Json] =
     val orderName = arguments.get("order_name").flatMap(_.asString).getOrElse("")
     val order = orders.values.find(o => o.hcursor.downField("name").as[String].contains(orderName))
     order match
-      case None => Future.successful(Json.obj("refund_request_number" -> "Error: No order found with the provided name".asJson))
+      case None =>
+        Future.successful(
+          Json.obj("refund_request_number" -> "Error: No order found with the provided name".asJson)
+        )
       case Some(o) =>
         val c = o.hcursor
         val eligStatus = c.downField("refund_eligibility_status").as[String].getOrElse("")
         if eligStatus != "Eligible" then
-          Future.successful(Json.obj("refund_request_number" -> "Error: Order is not eligible for refund".asJson))
+          Future.successful(
+            Json.obj("refund_request_number" -> "Error: Order is not eligible for refund".asJson)
+          )
         else
           val totalPrice = c.downField("total_price").as[Double].getOrElse(0.0)
           val pct = c.downField("refund_percentage").as[Double].getOrElse(0.0)
           val refundAmount = (totalPrice * pct) / 100
           val rfn = f"RFN-${refundRequests.size + 1}%04d"
-          Future.successful(Json.obj(
-            "refund_request_number" -> rfn.asJson,
-            "refund_amount" -> refundAmount.asJson,
-          ))
+          Future.successful(
+            Json.obj(
+              "refund_request_number" -> rfn.asJson,
+              "refund_amount" -> refundAmount.asJson
+            )
+          )
 
 class InitiateCustomerOrderRefundProcess(context: Json) extends Tool:
   private val orders: Map[String, Json] =
@@ -163,11 +188,16 @@ class InitiateCustomerOrderRefundProcess(context: Json) extends Tool:
   override def parametersSchema: Json = Json.obj(
     "type" -> "object".asJson,
     "properties" -> Json.obj(
-      "order_name" -> Json.obj("type" -> "string".asJson, "description" -> "Name of the customer order.".asJson),
-      "refund_reason" -> Json.obj("type" -> "string".asJson, "description" -> "Reason for the refund.".asJson),
-      "payment_method" -> Json.obj("type" -> "string".asJson, "description" -> "Last four digits of the payment method.".asJson),
+      "order_name" -> Json
+        .obj("type" -> "string".asJson, "description" -> "Name of the customer order.".asJson),
+      "refund_reason" -> Json
+        .obj("type" -> "string".asJson, "description" -> "Reason for the refund.".asJson),
+      "payment_method" -> Json.obj(
+        "type" -> "string".asJson,
+        "description" -> "Last four digits of the payment method.".asJson
+      )
     ),
-    "required" -> List("order_name", "refund_reason", "payment_method").asJson,
+    "required" -> List("order_name", "refund_reason", "payment_method").asJson
   )
 
   override def execute(arguments: Map[String, Json]): Future[Json] =
@@ -175,34 +205,52 @@ class InitiateCustomerOrderRefundProcess(context: Json) extends Tool:
     val reason = arguments.get("refund_reason").flatMap(_.asString).getOrElse("")
     val order = orders.values.find(o => o.hcursor.downField("name").as[String].contains(orderName))
     order match
-      case None => Future.successful(Json.obj("refund_request_number" -> "Error: No order found with the provided name".asJson))
+      case None =>
+        Future.successful(
+          Json.obj("refund_request_number" -> "Error: No order found with the provided name".asJson)
+        )
       case _ =>
         val rfn = f"RFN-${Math.abs(orderName.hashCode) % 10000}%04d"
-        Future.successful(Json.obj(
-          "refund_request_number" -> rfn.asJson,
-          "message" -> s"Refund initiated for order $orderName. Reason: $reason".asJson,
-        ))
+        Future.successful(
+          Json.obj(
+            "refund_request_number" -> rfn.asJson,
+            "message" -> s"Refund initiated for order $orderName. Reason: $reason".asJson
+          )
+        )
 
 class ProcessRefund(context: Json) extends Tool:
   private val refundRequests: Map[String, Json] =
     context.hcursor.downField("refund_requests").as[Map[String, Json]].getOrElse(Map.empty)
 
   override def name: String = "process_refund"
-  override def description: String = "Complete the refund process by updating the refund request status to Completed."
+  override def description: String =
+    "Complete the refund process by updating the refund request status to Completed."
 
   override def parametersSchema: Json = Json.obj(
     "type" -> "object".asJson,
     "properties" -> Json.obj(
-      "refund_request_number" -> Json.obj("type" -> "string".asJson, "description" -> "Number of the refund request to complete.".asJson),
+      "refund_request_number" -> Json.obj(
+        "type" -> "string".asJson,
+        "description" -> "Number of the refund request to complete.".asJson
+      )
     ),
-    "required" -> List("refund_request_number").asJson,
+    "required" -> List("refund_request_number").asJson
   )
 
   override def execute(arguments: Map[String, Json]): Future[Json] =
     val rfn = arguments.get("refund_request_number").flatMap(_.asString).getOrElse("")
     refundRequests.get(rfn) match
-      case None => Future.successful(Json.obj("refund_request_number" -> rfn.asJson, "status" -> "Error: Refund request not found".asJson))
-      case _ => Future.successful(Json.obj("refund_request_number" -> rfn.asJson, "status" -> "Completed".asJson))
+      case None =>
+        Future.successful(
+          Json.obj(
+            "refund_request_number" -> rfn.asJson,
+            "status" -> "Error: Refund request not found".asJson
+          )
+        )
+      case _ =>
+        Future.successful(
+          Json.obj("refund_request_number" -> rfn.asJson, "status" -> "Completed".asJson)
+        )
 
 class GetRefundStatus(context: Json) extends Tool:
   private val refundRequests: Map[String, Json] =
@@ -214,15 +262,17 @@ class GetRefundStatus(context: Json) extends Tool:
   override def parametersSchema: Json = Json.obj(
     "type" -> "object".asJson,
     "properties" -> Json.obj(
-      "refund_request_number" -> Json.obj("type" -> "string".asJson, "description" -> "Number of the RefundRequest.".asJson),
+      "refund_request_number" -> Json
+        .obj("type" -> "string".asJson, "description" -> "Number of the RefundRequest.".asJson)
     ),
-    "required" -> List("refund_request_number").asJson,
+    "required" -> List("refund_request_number").asJson
   )
 
   override def execute(arguments: Map[String, Json]): Future[Json] =
     val rfn = arguments.get("refund_request_number").flatMap(_.asString).getOrElse("")
     refundRequests.get(rfn) match
-      case None => Future.successful(Json.obj("refund_status" -> "Error: Refund request not found".asJson))
+      case None =>
+        Future.successful(Json.obj("refund_status" -> "Error: Refund request not found".asJson))
       case Some(r) =>
         val status = r.hcursor.downField("status").as[String].getOrElse("Unknown")
         Future.successful(Json.obj("refund_status" -> status.asJson))
@@ -238,10 +288,14 @@ class CancelRefund(context: Json) extends Tool:
   override def parametersSchema: Json = Json.obj(
     "type" -> "object".asJson,
     "properties" -> Json.obj(
-      "refund_request_number" -> Json.obj("type" -> "string".asJson, "description" -> "The refund request number to cancel.".asJson),
-      "refund_status" -> Json.obj("type" -> "string".asJson, "description" -> "The current refund status value.".asJson),
+      "refund_request_number" -> Json.obj(
+        "type" -> "string".asJson,
+        "description" -> "The refund request number to cancel.".asJson
+      ),
+      "refund_status" -> Json
+        .obj("type" -> "string".asJson, "description" -> "The current refund status value.".asJson)
     ),
-    "required" -> List("refund_request_number", "refund_status").asJson,
+    "required" -> List("refund_request_number", "refund_status").asJson
   )
 
   override def execute(arguments: Map[String, Json]): Future[Json] =
@@ -249,6 +303,7 @@ class CancelRefund(context: Json) extends Tool:
     val status = arguments.get("refund_status").flatMap(_.asString).getOrElse("")
     if status == "Completed" || status == "Cancelled" then
       Future.successful(Json.obj("cancelled" -> false.asJson))
-    else refundRequests.get(rfn) match
-      case None => Future.successful(Json.obj("cancelled" -> false.asJson))
-      case _ => Future.successful(Json.obj("cancelled" -> true.asJson))
+    else
+      refundRequests.get(rfn) match
+        case None => Future.successful(Json.obj("cancelled" -> false.asJson))
+        case _ => Future.successful(Json.obj("cancelled" -> true.asJson))

@@ -27,17 +27,18 @@ import com.salesforce.spearhead.evalon.llm.{AnthropicClient, ContentBlock, Creat
 import com.salesforce.spearhead.evalon.model.*
 import com.salesforce.spearhead.evalon.tool.Tool
 
-/** Sample agent powered by Claude with tool use. Stateless across `step` calls — the simulator
-  * passes the conversation history each time. Tool-use rounds inside a single step accumulate
-  * state locally.
-  */
+/**
+ * Sample agent powered by Claude with tool use. Stateless across `step` calls — the simulator
+ * passes the conversation history each time. Tool-use rounds inside a single step accumulate state
+ * locally.
+ */
 class ClaudeAgent(
-  tools: Map[String, Tool],
-  client: AnthropicClient,
-  model: String = Settings.defaultModel,
-  systemPrompt: String = "You are a helpful assistant.",
-  agentName: String = "agent",
-  maxToolRounds: Int = Settings.defaultMaxToolRounds,
+    tools: Map[String, Tool],
+    client: AnthropicClient,
+    model: String = Settings.defaultModel,
+    systemPrompt: String = "You are a helpful assistant.",
+    agentName: String = "agent",
+    maxToolRounds: Int = Settings.defaultMaxToolRounds
 )(using ec: ExecutionContext)
     extends Agent:
 
@@ -45,20 +46,20 @@ class ClaudeAgent(
     Json.obj(
       "name" -> tool.name.asJson,
       "description" -> tool.description.asJson,
-      "input_schema" -> tool.parametersSchema,
+      "input_schema" -> tool.parametersSchema
     )
   }.toList
 
   override def step(
       history: List[HistoryEntry],
       events: List[Event],
-      respondIn: String,
+      respondIn: String
   ): Future[Action] =
     val baseMessages = history.map {
       case HistoryEntry.Turn(conversation, sender, content, _) =>
         Json.obj(
           "role" -> "user".asJson,
-          "content" -> s"[$sender in $conversation]: $content".asJson,
+          "content" -> s"[$sender in $conversation]: $content".asJson
         )
       case HistoryEntry.ToolUse(conversation, interaction) =>
         val resultText = interaction.result.error.getOrElse(interaction.result.result.noSpaces)
@@ -67,24 +68,27 @@ class ClaudeAgent(
             s"${interaction.call.arguments.asJson.noSpaces} → result: $resultText]"
         Json.obj(
           "role" -> "user".asJson,
-          "content" -> text.asJson,
+          "content" -> text.asJson
         )
     }
 
     val eventLines =
       if events.isEmpty then ""
       else
-        events.map { event =>
-          s"[System event: ${event.name}] ${event.data.asJson.noSpaces}"
-        }.mkString("\n") + "\n\n"
+        events
+          .map { event =>
+            s"[System event: ${event.name}] ${event.data.asJson.noSpaces}"
+          }
+          .mkString("\n") + "\n\n"
 
     val nudge =
-      if baseMessages.isEmpty then s"""${eventLines}The "$respondIn" conversation is starting. Please begin."""
+      if baseMessages.isEmpty then
+        s"""${eventLines}The "$respondIn" conversation is starting. Please begin."""
       else s"""${eventLines}[system]: Respond now in the "$respondIn" conversation."""
 
     val initialMessages = baseMessages :+ Json.obj(
       "role" -> "user".asJson,
-      "content" -> nudge.asJson,
+      "content" -> nudge.asJson
     )
 
     run(initialMessages)
@@ -105,7 +109,7 @@ class ClaudeAgent(
           maxTokens = 1024,
           system = systemPrompt,
           messages = messages,
-          tools = toolDefinitions,
+          tools = toolDefinitions
         )
         client.createMessage(request).flatMap { response =>
           var assistantContent: List[Json] = Nil
@@ -116,7 +120,7 @@ class ClaudeAgent(
             case ContentBlock.TextBlock(text) =>
               assistantContent = assistantContent :+ Json.obj(
                 "type" -> "text".asJson,
-                "text" -> text.asJson,
+                "text" -> text.asJson
               )
               val trimmed = text.trim
               // [NO_ACTION] only counts as a signal when it's the trailing token; strip it
@@ -131,7 +135,7 @@ class ClaudeAgent(
                 "type" -> "tool_use".asJson,
                 "id" -> id.asJson,
                 "name" -> name.asJson,
-                "input" -> input,
+                "input" -> input
               )
               val arguments = input.as[Map[String, Json]].getOrElse(Map.empty)
               toolUseBlocks = toolUseBlocks :+ (id -> ToolCall(name, arguments))
@@ -139,7 +143,7 @@ class ClaudeAgent(
 
           messages = messages :+ Json.obj(
             "role" -> "assistant".asJson,
-            "content" -> assistantContent.asJson,
+            "content" -> assistantContent.asJson
           )
 
           if toolUseBlocks.isEmpty then
@@ -149,14 +153,22 @@ class ClaudeAgent(
             val toolFutures = toolUseBlocks.map { (id, tc) =>
               tools.get(tc.toolName) match
                 case None =>
-                  val tr = ToolResult(tc.toolName, tc.arguments, Json.Null, Some(s"Tool '${tc.toolName}' not found"))
+                  val tr = ToolResult(
+                    tc.toolName,
+                    tc.arguments,
+                    Json.Null,
+                    Some(s"Tool '${tc.toolName}' not found")
+                  )
                   Future.successful((id, tc, tr))
                 case Some(tool) =>
-                  tool.execute(tc.arguments).map { output =>
-                    (id, tc, ToolResult(tc.toolName, tc.arguments, output))
-                  }.recover { case e: Exception =>
-                    (id, tc, ToolResult(tc.toolName, tc.arguments, Json.Null, Some(e.getMessage)))
-                  }
+                  tool
+                    .execute(tc.arguments)
+                    .map { output =>
+                      (id, tc, ToolResult(tc.toolName, tc.arguments, output))
+                    }
+                    .recover { case e: Exception =>
+                      (id, tc, ToolResult(tc.toolName, tc.arguments, Json.Null, Some(e.getMessage)))
+                    }
             }
 
             Future.sequence(toolFutures).flatMap { results =>
@@ -166,12 +178,12 @@ class ClaudeAgent(
                 Json.obj(
                   "type" -> "tool_result".asJson,
                   "tool_use_id" -> id.asJson,
-                  "content" -> content.asJson,
+                  "content" -> content.asJson
                 )
               }
               messages = messages :+ Json.obj(
                 "role" -> "user".asJson,
-                "content" -> resultBlocks.asJson,
+                "content" -> resultBlocks.asJson
               )
               loop(remainingRounds - 1, toolInteractions ++ newInteractions)
             }

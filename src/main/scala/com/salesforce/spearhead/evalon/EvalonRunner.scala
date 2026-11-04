@@ -34,12 +34,13 @@ import com.salesforce.spearhead.evalon.llm.Llm
 import com.salesforce.spearhead.evalon.model.{ParticipantType, Scenario}
 import com.salesforce.spearhead.evalon.scenario.ScenarioLoader
 
-/** Blocking Java-callable runner: simulate a scenario and judge.
-  *
-  * Each {@link #run} / {@link #runSimple} spawns a {@code ScenarioRunner} under the caller-owned
-  * actor system. Reuse one {@code EvalonRunner} (and system) across runs; {@code terminate()} when
-  * done.
-  */
+/**
+ * Blocking Java-callable runner: simulate a scenario and judge.
+ *
+ * Each {@link #run} / {@link #runSimple} spawns a {@code ScenarioRunner} under the caller-owned
+ * actor system. Reuse one {@code EvalonRunner} (and system) across runs; {@code terminate()} when
+ * done.
+ */
 final class EvalonRunner(system: ActorSystem[SpawnProtocol.Command]):
 
   private val runSeq = new AtomicLong()
@@ -75,8 +76,8 @@ final class EvalonRunner(system: ActorSystem[SpawnProtocol.Command]):
     )
 
     val simulation = Await.result(
-      runner.ask[ScenarioRunner.SimulationResult](ref => ScenarioRunner.Run(ref))(
-        using timeout,
+      runner.ask[ScenarioRunner.SimulationResult](ref => ScenarioRunner.Run(ref))(using
+        timeout,
         system.scheduler
       ),
       options.getSimulationTimeout.toScala
@@ -98,9 +99,10 @@ final class EvalonRunner(system: ActorSystem[SpawnProtocol.Command]):
 
 object EvalonRunner:
 
-  /** Create a system suitable for {@link EvalonRunner}. Caller owns it: reuse across runs,
-    * {@code terminate()} when done. Java: {@code EvalonRunner.newSystem()}.
-    */
+  /**
+   * Create a system suitable for {@link EvalonRunner}. Caller owns it: reuse across runs,
+   * {@code terminate()} when done. Java: {@code EvalonRunner.newSystem()}.
+   */
   def newSystem(): ActorSystem[SpawnProtocol.Command] = newSystem("evalon")
 
   def newSystem(name: String): ActorSystem[SpawnProtocol.Command] =
@@ -109,7 +111,7 @@ object EvalonRunner:
   def loadScenario(path: Path): Scenario =
     ScenarioLoader.load(path) match
       case Right(s) => s
-      case Left(e)  => throw RuntimeException(s"Failed to load scenario: $e")
+      case Left(e) => throw RuntimeException(s"Failed to load scenario: $e")
 
   private def evaluatedName(scenario: Scenario): String =
     scenario.participants

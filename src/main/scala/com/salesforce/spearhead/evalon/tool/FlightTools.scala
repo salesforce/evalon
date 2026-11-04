@@ -36,17 +36,17 @@ class FlightLookup(context: Json) extends Tool:
     "properties" -> Json.obj(
       "flight_number" -> Json.obj(
         "type" -> "string".asJson,
-        "description" -> "Flight number to look up".asJson,
+        "description" -> "Flight number to look up".asJson
       ),
       "origin" -> Json.obj(
         "type" -> "string".asJson,
-        "description" -> "Origin airport code".asJson,
+        "description" -> "Origin airport code".asJson
       ),
       "destination" -> Json.obj(
         "type" -> "string".asJson,
-        "description" -> "Destination airport code".asJson,
-      ),
-    ),
+        "description" -> "Destination airport code".asJson
+      )
+    )
   )
 
   override def execute(arguments: Map[String, Json]): Future[Json] =
@@ -82,14 +82,14 @@ class FlightRebook(context: Json) extends Tool:
     "properties" -> Json.obj(
       "booking_ref" -> Json.obj(
         "type" -> "string".asJson,
-        "description" -> "Original booking reference".asJson,
+        "description" -> "Original booking reference".asJson
       ),
       "new_flight_number" -> Json.obj(
         "type" -> "string".asJson,
-        "description" -> "New flight to rebook to".asJson,
-      ),
+        "description" -> "New flight to rebook to".asJson
+      )
     ),
-    "required" -> List("booking_ref", "new_flight_number").asJson,
+    "required" -> List("booking_ref", "new_flight_number").asJson
   )
 
   override def execute(arguments: Map[String, Json]): Future[Json] =
@@ -100,9 +100,11 @@ class FlightRebook(context: Json) extends Tool:
       case None =>
         Future.successful(Json.obj("error" -> s"Flight $newFlight not found".asJson))
       case Some(flightData) =>
-        Future.successful(Json.obj(
-          "status" -> "confirmed".asJson,
-          "booking_ref" -> bookingRef.asJson,
-          "new_flight" -> flightData,
-          "message" -> s"Successfully rebooked to $newFlight".asJson,
-        ))
+        Future.successful(
+          Json.obj(
+            "status" -> "confirmed".asJson,
+            "booking_ref" -> bookingRef.asJson,
+            "new_flight" -> flightData,
+            "message" -> s"Successfully rebooked to $newFlight".asJson
+          )
+        )

@@ -41,16 +41,16 @@ class TranscriptPrinter(showConversation: Boolean = false, convWidth: Int = 14):
         val color = defaultColors(senderColors.size % defaultColors.size)
         senderColors = senderColors + (sender -> color)
         color
-      },
+      }
     )
 
   private def senderIcon(sender: String): String =
     sender.toLowerCase match
-      case "agent"          => "🤖 "
-      case "end_user"       => "👤 "
+      case "agent" => "🤖 "
+      case "end_user" => "👤 "
       case "representative" => "🎧 "
-      case "user"           => "👤 "
-      case _                => "💬 "
+      case "user" => "👤 "
+      case _ => "💬 "
 
   private def pad(s: String, width: Int): String = s.padTo(width, ' ')
 
@@ -69,12 +69,11 @@ class TranscriptPrinter(showConversation: Boolean = false, convWidth: Int = 14):
         val secs = ms / 1000.0
         s"  $Dim(${String.format("%.1f", secs)}s)$Reset"
       case Some(ms) => s"  $Dim(${ms}ms)$Reset"
-      case None     => ""
+      case None => ""
 
   def apply(entry: TranscriptEntry): Unit =
     // Insert blank line when conversation changes
-    if lastConversation.isDefined && entry.conversation != lastConversation then
-      println()
+    if lastConversation.isDefined && entry.conversation != lastConversation then println()
     lastConversation = entry.conversation
 
     val suffix = durationSuffix(entry)

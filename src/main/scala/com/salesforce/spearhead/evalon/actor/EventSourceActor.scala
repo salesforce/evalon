@@ -25,13 +25,14 @@ import io.circe.syntax.*
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 
-import com.salesforce.spearhead.evalon.llm.{Llm, ChatMessage}
+import com.salesforce.spearhead.evalon.llm.{ChatMessage, Llm}
 import com.salesforce.spearhead.evalon.model.{Event, EventSourceConfig, TranscriptEntry}
 
-/** Event source actor — observes simulation traffic and emits derived events.
-  *
-  * Simulated event sources use an LLM to reason about whether new events should be fired.
-  */
+/**
+ * Event source actor — observes simulation traffic and emits derived events.
+ *
+ * Simulated event sources use an LLM to reason about whether new events should be fired.
+ */
 object EventSourceActor:
 
   sealed trait Command
@@ -42,9 +43,9 @@ object EventSourceActor:
   private case class EmissionFailed(cause: Throwable) extends Command
 
   def apply(
-    config: EventSourceConfig,
-    llm: Llm,
-    runner: ActorRef[ScenarioRunner.Command],
+      config: EventSourceConfig,
+      llm: Llm,
+      runner: ActorRef[ScenarioRunner.Command]
   ): Behavior[Command] = simulated(config, llm, runner, Vector.empty)
 
   private val systemPromptTemplate: String =
@@ -62,10 +63,10 @@ Format: [{"name": "event_type", "data": {"key": "value"}}]
 Only emit events when clearly warranted by observed activity. Do not emit events proactively without cause."""
 
   private def simulated(
-    config: EventSourceConfig,
-    llm: Llm,
-    runner: ActorRef[ScenarioRunner.Command],
-    observedEntries: Vector[TranscriptEntry],
+      config: EventSourceConfig,
+      llm: Llm,
+      runner: ActorRef[ScenarioRunner.Command],
+      observedEntries: Vector[TranscriptEntry]
   ): Behavior[Command] = Behaviors.receive { (context, message) =>
     message match
       case SimulationUpdate(entry) =>
@@ -73,21 +74,26 @@ Only emit events when clearly warranted by observed activity. Do not emit events
 
         // Only reason about events when we see a new message (not tool results, etc.)
         if entry.message.isDefined then
-          val emitsDesc = config.emits.map { e =>
-            s"- ${e.event}: ${e.schema.map((k, v) => s"$k: $v").mkString(", ")}"
-          }.mkString("\n")
+          val emitsDesc = config.emits
+            .map { e =>
+              s"- ${e.event}: ${e.schema.map((k, v) => s"$k: $v").mkString(", ")}"
+            }
+            .mkString("\n")
 
           val systemPrompt = systemPromptTemplate
             .replace("{description}", config.description)
             .replace("{emits}", emitsDesc)
 
-          val activityLog = updated.flatMap { e =>
-            e.message.map { m =>
-              val trace = m.trace.map(j => s" ${j.noSpaces}").getOrElse("")
-              s"[${m.sender}]: ${m.content}$trace"
+          val activityLog = updated
+            .flatMap { e =>
+              e.message
+                .map { m =>
+                  val trace = m.trace.map(j => s" ${j.noSpaces}").getOrElse("")
+                  s"[${m.sender}]: ${m.content}$trace"
+                }
+                .orElse(e.event.map(ev => s"[event: ${ev.name}] ${ev.data.asJson.noSpaces}"))
             }
-              .orElse(e.event.map(ev => s"[event: ${ev.name}] ${ev.data.asJson.noSpaces}"))
-          }.mkString("\n")
+            .mkString("\n")
 
           val userPrompt = s"Activity so far:\n$activityLog\n\nShould any events be emitted?"
           context.pipeToSelf(llm.completeAsync(systemPrompt, List(ChatMessage.user(userPrompt)))) {
@@ -107,8 +113,7 @@ Only emit events when clearly warranted by observed activity. Do not emit events
         else simulated(config, llm, runner, updated)
 
       case EmissionResult(events) =>
-        if events.nonEmpty then
-          runner ! ScenarioRunner.EventSourceEmission(config.name, events)
+        if events.nonEmpty then runner ! ScenarioRunner.EventSourceEmission(config.name, events)
         Behaviors.same
 
       case EmissionFailed(cause) =>
