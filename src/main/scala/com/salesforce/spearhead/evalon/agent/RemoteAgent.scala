@@ -25,15 +25,16 @@ import sttp.client4.*
 
 import com.salesforce.spearhead.evalon.model.{Action, Event, HistoryEntry}
 
-/** Proxies the Agent trait over HTTP to a remote implementation in any language.
-  *
-  * Stateless: every `step` call serializes the full history + events + target conversation and
-  * POSTs to the configured endpoint. No internal buffers. The remote server runs its own tools
-  * and returns the resulting action plus the tool trace.
-  */
+/**
+ * Proxies the Agent trait over HTTP to a remote implementation in any language.
+ *
+ * Stateless: every `step` call serializes the full history + events + target conversation and POSTs
+ * to the configured endpoint. No internal buffers. The remote server runs its own tools and returns
+ * the resulting action plus the tool trace.
+ */
 class RemoteAgent(
     endpoint: String,
-    backend: Backend[Future],
+    backend: Backend[Future]
 )(using ec: ExecutionContext)
     extends Agent:
 
@@ -44,19 +45,19 @@ class RemoteAgent(
   override def step(
       history: List[HistoryEntry],
       events: List[Event],
-      respondIn: String,
+      respondIn: String
   ): Future[Action] =
     val request = StepRequest(
       protocolVersion = StepRequest.currentVersion,
       history = history,
       events = events,
-      respondIn = respondIn,
+      respondIn = respondIn
     )
     sendWithRetry(request.asJson.noSpaces)
 
   private def sendWithRetry(
       requestBody: String,
-      attempt: Int = 0,
+      attempt: Int = 0
   ): Future[Action] =
     basicRequest
       .post(uri"$endpoint/v1/step")

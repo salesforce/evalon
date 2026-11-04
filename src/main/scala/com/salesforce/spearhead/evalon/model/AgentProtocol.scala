@@ -20,12 +20,13 @@ package com.salesforce.spearhead.evalon.model
 import io.circe.*
 import io.circe.syntax.*
 
-/** A single entry in the simulation history passed to an agent.
-  *
-  * Either a conversational turn (someone said something) or a tool interaction the agent
-  * itself performed in a prior step. Recording past tool work prevents the agent from
-  * re-executing actions across steps.
-  */
+/**
+ * A single entry in the simulation history passed to an agent.
+ *
+ * Either a conversational turn (someone said something) or a tool interaction the agent itself
+ * performed in a prior step. Recording past tool work prevents the agent from re-executing actions
+ * across steps.
+ */
 enum HistoryEntry:
   case Turn(conversation: String, sender: String, content: String, trace: Option[Json] = None)
   case ToolUse(conversation: String, interaction: ToolInteraction)
@@ -37,14 +38,14 @@ object HistoryEntry:
         "type" -> "turn".asJson,
         "conversation" -> conversation.asJson,
         "sender" -> sender.asJson,
-        "content" -> content.asJson,
+        "content" -> content.asJson
       )
       trace.fold(base)(t => base.deepMerge(Json.obj("trace" -> t)))
     case HistoryEntry.ToolUse(conversation, interaction) =>
       Json.obj(
         "type" -> "tool_use".asJson,
         "conversation" -> conversation.asJson,
-        "interaction" -> interaction.asJson,
+        "interaction" -> interaction.asJson
       )
   }
   given Decoder[HistoryEntry] = Decoder.instance { c =>

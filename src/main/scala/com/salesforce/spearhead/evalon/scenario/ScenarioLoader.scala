@@ -28,10 +28,11 @@ object ScenarioLoader:
 
   private val reservedNames = Set("user", "assistant")
 
-  /** Checks a scenario for configurations that crash or misclassify failures at runtime. Run by
-    * {@link #load} and again by {@code EvalonRunner} before a simulation starts, so scenarios built
-    * directly in code are covered too.
-    */
+  /**
+   * Checks a scenario for configurations that crash or misclassify failures at runtime. Run by
+   * {@link #load} and again by {@code EvalonRunner} before a simulation starts, so scenarios built
+   * directly in code are covered too.
+   */
   def validateScenario(scenario: Scenario): Either[String, Unit] =
     for
       _ <- validateEventSourceNames(scenario)
@@ -98,7 +99,7 @@ object ScenarioLoader:
       context = context,
       evalCriteria = evalCriteria,
       evalPromptTemplate = evalPromptTemplate,
-      maxTurns = maxTurns,
+      maxTurns = maxTurns
     )
 
   private def decodeParticipants(cursor: ACursor): Either[String, Map[String, ParticipantConfig]] =
@@ -116,13 +117,13 @@ object ScenarioLoader:
               val typeStr = c.downField("type").as[String].getOrElse("simulated")
               val pType = typeStr match
                 case "evaluated" => ParticipantType.Evaluated
-                case "custom"    => ParticipantType.Custom
-                case _           => ParticipantType.Simulated
+                case "custom" => ParticipantType.Custom
+                case _ => ParticipantType.Simulated
               val responseSpeed = c.downField("response_speed").as[String].toOption.flatMap {
-                case "fast"   => Some(ResponseSpeed.Fast)
+                case "fast" => Some(ResponseSpeed.Fast)
                 case "medium" => Some(ResponseSpeed.Medium)
-                case "slow"   => Some(ResponseSpeed.Slow)
-                case _        => None
+                case "slow" => Some(ResponseSpeed.Slow)
+                case _ => None
               }
               Right(
                 name -> ParticipantConfig(
@@ -132,13 +133,18 @@ object ScenarioLoader:
                   goal = c.downField("goal").as[String].getOrElse(""),
                   template = c.downField("template").as[String].toOption,
                   endpoint = c.downField("endpoint").as[String].toOption,
-                  responseSpeed = responseSpeed,
+                  responseSpeed = responseSpeed
                 )
               )
           }
-          results.foldLeft(Right(Map.empty[String, ParticipantConfig]): Either[String, Map[String, ParticipantConfig]]) {
-            case (Left(e), _)              => Left(e)
-            case (_, Left(e))              => Left(e)
+          results.foldLeft(
+            Right(Map.empty[String, ParticipantConfig]): Either[
+              String,
+              Map[String, ParticipantConfig]
+            ]
+          ) {
+            case (Left(e), _) => Left(e)
+            case (_, Left(e)) => Left(e)
             case (Right(acc), Right(pair)) => Right(acc + pair)
           }
         }
@@ -153,7 +159,7 @@ object ScenarioLoader:
             ConversationConfig(
               name = c.downField("name").as[String].getOrElse(""),
               between = c.downField("between").as[List[String]].getOrElse(Nil),
-              initiatedBy = c.downField("initiated_by").as[String].toOption,
+              initiatedBy = c.downField("initiated_by").as[String].toOption
             )
           }
         }
@@ -167,7 +173,7 @@ object ScenarioLoader:
             val c = j.hcursor
             ObservationConfig(
               participant = c.downField("participant").as[String].getOrElse(""),
-              observes = c.downField("observes").as[List[String]].getOrElse(Nil),
+              observes = c.downField("observes").as[List[String]].getOrElse(Nil)
             )
           }
         }
@@ -183,7 +189,7 @@ object ScenarioLoader:
               val ec = ej.hcursor
               EventEmitConfig(
                 event = ec.downField("event").as[String].getOrElse(""),
-                schema = ec.downField("schema").as[Map[String, String]].getOrElse(Map.empty),
+                schema = ec.downField("schema").as[Map[String, String]].getOrElse(Map.empty)
               )
             }
             EventSourceConfig(
@@ -191,7 +197,7 @@ object ScenarioLoader:
               sourceType = c.downField("type").as[String].getOrElse("simulated"),
               description = c.downField("description").as[String].getOrElse(""),
               emits = emits,
-              className = c.downField("class_name").as[String].toOption,
+              className = c.downField("class_name").as[String].toOption
             )
           }.toList
         }
@@ -219,15 +225,14 @@ object ScenarioLoader:
         )
       case None =>
         val c = json.hcursor
-        for
-          criterionType <- decodeCriterionType(c)
+        for criterionType <- decodeCriterionType(c)
         yield EvalCriterion(
           name = c.downField("name").as[String].toOption.getOrElse(""),
           description = c.downField("description").as[String].toOption.getOrElse(""),
           criterionType = criterionType,
           requireToolCall = c.downField("require_tool_call").as[Boolean].toOption.getOrElse(false),
           passThreshold = c.downField("pass_threshold").as[Double].toOption,
-          weight = c.downField("weight").as[Double].toOption.getOrElse(1.0),
+          weight = c.downField("weight").as[Double].toOption.getOrElse(1.0)
         )
 
   private def decodeCriterionType(c: HCursor): Either[String, CriterionType] =

@@ -27,25 +27,28 @@ import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import com.salesforce.spearhead.evalon.agent.Agent
 import com.salesforce.spearhead.evalon.model.{Action, Event, HistoryEntry}
 
-/** Wraps the Agent trait as a Pekko actor, bridging actor messages to Future-based calls.
-  *
-  * Owns the conversation history (including the agent's own outgoing messages and tool work) and
-  * the pending event buffer; passes the slice plus a target conversation to the agent on every
-  * step. Self-driven: when input arrives and the actor is idle, it starts a step. Inputs received
-  * during an in-flight step are accumulated and processed afterward.
-  */
+/**
+ * Wraps the Agent trait as a Pekko actor, bridging actor messages to Future-based calls.
+ *
+ * Owns the conversation history (including the agent's own outgoing messages and tool work) and the
+ * pending event buffer; passes the slice plus a target conversation to the agent on every step.
+ * Self-driven: when input arrives and the actor is idle, it starts a step. Inputs received during
+ * an in-flight step are accumulated and processed afterward.
+ */
 object EvaluatedAgent:
 
-  /** Outcome of an in-flight step, piped back to this actor. A `Failure` carries the cause so it
-    * can be surfaced to the runner rather than swallowed.
-    */
+  /**
+   * Outcome of an in-flight step, piped back to this actor. A `Failure` carries the cause so it can
+   * be surfaced to the runner rather than swallowed.
+   */
   case class AgentResult private[EvaluatedAgent] (result: Try[Action], conversation: String)
 
-  /** Pending work accumulated while a step is in flight.
-    *
-    * Conversations that need a reply are tracked as a set (de-duplicated). Events are accumulated
-    * as a flat list — original batching is incidental and not preserved.
-    */
+  /**
+   * Pending work accumulated while a step is in flight.
+   *
+   * Conversations that need a reply are tracked as a set (de-duplicated). Events are accumulated as
+   * a flat list — original batching is incidental and not preserved.
+   */
   private case class Pending(conversations: Set[String], events: List[Event])
 
   def apply(
@@ -64,7 +67,8 @@ object EvaluatedAgent:
       history: List[HistoryEntry]
   ): Behavior[Participant.Command | AgentResult] = Behaviors.receive {
     case (ctx, Participant.ReceiveMessage(msg, conversation)) =>
-      val newHistory = history :+ HistoryEntry.Turn(conversation, msg.sender, msg.content, msg.trace)
+      val newHistory =
+        history :+ HistoryEntry.Turn(conversation, msg.sender, msg.content, msg.trace)
       startStep(
         agent,
         runner,
@@ -94,9 +98,10 @@ object EvaluatedAgent:
     case (_, _: AgentResult) => Behaviors.same // stale result after state transition
   }
 
-  /** Split observed events: conversation_message events become history turns; other events stay
-    * as system events. This keeps the agent's view of the world durable across steps.
-    */
+  /**
+   * Split observed events: conversation_message events become history turns; other events stay as
+   * system events. This keeps the agent's view of the world durable across steps.
+   */
   private def absorbEvents(
       history: List[HistoryEntry],
       events: List[Event]
@@ -111,9 +116,10 @@ object EvaluatedAgent:
     }
     (history ++ turns, systemEvents)
 
-  /** Append the agent's own outgoing action to history so future steps can see what the agent
-    * has already done. Empty messages are skipped (consistent with the runner's filter).
-    */
+  /**
+   * Append the agent's own outgoing action to history so future steps can see what the agent has
+   * already done. Empty messages are skipped (consistent with the runner's filter).
+   */
   private def recordAction(
       history: List[HistoryEntry],
       agentName: String,
@@ -138,7 +144,8 @@ object EvaluatedAgent:
       pending: Pending
   ): Behavior[Participant.Command | AgentResult] = Behaviors.receive {
     case (_, Participant.ReceiveMessage(msg, conversation)) =>
-      val newHistory = history :+ HistoryEntry.Turn(conversation, msg.sender, msg.content, msg.trace)
+      val newHistory =
+        history :+ HistoryEntry.Turn(conversation, msg.sender, msg.content, msg.trace)
       val newPending = pending.copy(conversations = pending.conversations + conversation)
       generating(agent, runner, agentName, directConversations, newHistory, newPending)
 
@@ -209,10 +216,11 @@ object EvaluatedAgent:
     ctx.pipeToSelf(safeStep(agent, history, events, respondIn))(AgentResult(_, respondIn))
     generating(agent, runner, agentName, directConversations, history, pending)
 
-  /** Invoke the agent's step, capturing a synchronous throw or a null result as a failed Future.
-    * `pipeToSelf` only routes failures that reach it as a `Future`; a raw `Agent` that throws in
-    * `step` before returning would otherwise escape the fail-fast path and kill the actor.
-    */
+  /**
+   * Invoke the agent's step, capturing a synchronous throw or a null result as a failed Future.
+   * `pipeToSelf` only routes failures that reach it as a `Future`; a raw `Agent` that throws in
+   * `step` before returning would otherwise escape the fail-fast path and kill the actor.
+   */
   private def safeStep(
       agent: Agent,
       history: List[HistoryEntry],

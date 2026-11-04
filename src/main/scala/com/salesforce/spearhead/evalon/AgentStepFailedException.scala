@@ -19,13 +19,15 @@ package com.salesforce.spearhead.evalon
 
 import com.salesforce.spearhead.evalon.model.Transcript
 
-/** Thrown by {@link EvalonRunner#run} when the evaluated agent's {@code step} fails (a thrown
-  * exception, a null or failed {@code CompletionStage}, or exhausted retries). The failure is
-  * surfaced instead of being swallowed as an empty message, so a broken agent fails the run rather
-  * than being silently judged.
-  *
-  * @param cause the underlying step failure
-  */
+/**
+ * Thrown by {@link EvalonRunner#run} when the evaluated agent's {@code step} fails (a thrown
+ * exception, a null or failed {@code CompletionStage}, or exhausted retries). The failure is
+ * surfaced instead of being swallowed as an empty message, so a broken agent fails the run rather
+ * than being silently judged.
+ *
+ * @param cause
+ *   the underlying step failure
+ */
 final class AgentStepFailedException(cause: Throwable, transcript: Transcript)
     extends RuntimeException("Evaluated agent step failed during simulation", cause):
 

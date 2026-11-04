@@ -35,9 +35,9 @@ import sttp.client4.*
 import com.salesforce.spearhead.evalon.Settings
 
 class AnthropicClient(
-  baseUrl: String = Settings.anthropicBaseUrl,
-  apiKey: String = Settings.anthropicApiKey,
-  backend: Backend[Future],
+    baseUrl: String = Settings.anthropicBaseUrl,
+    apiKey: String = Settings.anthropicApiKey,
+    backend: Backend[Future]
 )(using ec: ExecutionContext)
     extends Llm:
 
@@ -54,7 +54,7 @@ class AnthropicClient(
       model = Settings.defaultModel,
       maxTokens = 2048,
       system = system,
-      messages = messages.map(_.toJson),
+      messages = messages.map(_.toJson)
     )
     createMessage(request).map(textOf).asJava
 
@@ -82,7 +82,8 @@ class AnthropicClient(
                 Future.failed(
                   RuntimeException(s"Failed to parse response: $err\nBody: $body")
                 )
-          case Left(errorBody) if retryableStatusCodes.contains(response.code.code) && attempt < maxRetries =>
+          case Left(errorBody)
+              if retryableStatusCodes.contains(response.code.code) && attempt < maxRetries =>
             val delay = baseDelayMs * (1 << attempt)
             Future {
               Thread.sleep(delay)

@@ -20,7 +20,9 @@ package com.salesforce.spearhead.evalon.llm
 import io.circe.Json
 import io.circe.syntax.*
 
-/** One chat turn. Java: {@code new ChatMessage("user", "...")} or {@code ChatMessage.user("...")}. */
+/**
+ * One chat turn. Java: {@code new ChatMessage("user", "...")} or {@code ChatMessage.user("...")}.
+ */
 final case class ChatMessage(role: String, content: String):
   def getRole: String = role
   def getContent: String = content

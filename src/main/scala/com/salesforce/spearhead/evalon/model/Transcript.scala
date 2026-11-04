@@ -21,12 +21,12 @@ import io.circe.*
 import io.circe.syntax.*
 
 case class TranscriptEntry(
-  conversation: Option[String] = None,
-  message: Option[Message] = None,
-  toolCall: Option[ToolCall] = None,
-  toolResult: Option[ToolResult] = None,
-  event: Option[Event] = None,
-  durationMs: Option[Long] = None,
+    conversation: Option[String] = None,
+    message: Option[Message] = None,
+    toolCall: Option[ToolCall] = None,
+    toolResult: Option[ToolResult] = None,
+    event: Option[Event] = None,
+    durationMs: Option[Long] = None
 )
 
 object TranscriptEntry:
@@ -67,25 +67,26 @@ object TranscriptEntry:
     Json.obj(fields.reverse*)
   }
 
-/** Immutable transcript — the ScenarioRunner holds this as state and replaces it on each append.
-  */
+/**
+ * Immutable transcript — the ScenarioRunner holds this as state and replaces it on each append.
+ */
 case class Transcript(entries: Vector[TranscriptEntry] = Vector.empty):
 
   def append(entry: TranscriptEntry): Transcript =
     copy(entries = entries :+ entry)
 
   def addMessage(
-    sender: String,
-    content: String,
-    conversation: Option[String] = None,
-    durationMs: Option[Long] = None,
-    trace: Option[Json] = None,
+      sender: String,
+      content: String,
+      conversation: Option[String] = None,
+      durationMs: Option[Long] = None,
+      trace: Option[Json] = None
   ): Transcript =
     append(
       TranscriptEntry(
         conversation = conversation,
         message = Some(Message(sender, content, trace)),
-        durationMs = durationMs,
+        durationMs = durationMs
       )
     )
 
@@ -106,12 +107,16 @@ case class Transcript(entries: Vector[TranscriptEntry] = Vector.empty):
 
   /** Extract the ordered sequence of tool calls as a plan. */
   def toPlan: List[Json] =
-    entries.flatMap(_.toolCall).zipWithIndex.map { case (tc, i) =>
-      Json.obj(
-        "step" -> (i + 1).asJson,
-        "tool" -> tc.toolName.asJson,
-        "arguments" -> tc.arguments.asJson,
-      )
-    }.toList
+    entries
+      .flatMap(_.toolCall)
+      .zipWithIndex
+      .map { case (tc, i) =>
+        Json.obj(
+          "step" -> (i + 1).asJson,
+          "tool" -> tc.toolName.asJson,
+          "arguments" -> tc.arguments.asJson
+        )
+      }
+      .toList
 
   def toJson: Json = entries.map(TranscriptEntry.given_Encoder_TranscriptEntry(_)).asJson

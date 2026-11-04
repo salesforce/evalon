@@ -18,11 +18,11 @@
 package com.salesforce.spearhead.evalon.output
 
 import java.nio.file.{Files, Path}
-import java.time.{Instant, ZoneOffset}
 import java.time.format.DateTimeFormatter
+import java.time.{Instant, ZoneOffset}
 
-import io.circe.{Encoder, Json}
 import io.circe.syntax.*
+import io.circe.{Encoder, Json}
 
 import com.salesforce.spearhead.evalon.model.{EvalResult, Scenario, Transcript}
 
@@ -33,15 +33,15 @@ object DatasetWriter:
     val metaPath = scenarioDir.resolve("scenario.json")
     val meta = Json.obj(
       "scenario_name" -> scenario.name.asJson,
-      "scenario_description" -> scenario.description.asJson,
+      "scenario_description" -> scenario.description.asJson
     )
     Files.writeString(metaPath, meta.spaces2)
 
   def saveDatasetEntry(
-    scenario: Scenario,
-    transcript: Transcript,
-    evalResult: EvalResult,
-    outputDir: Path,
+      scenario: Scenario,
+      transcript: Transcript,
+      evalResult: EvalResult,
+      outputDir: Path
   ): Path =
     val timestamp = DateTimeFormatter
       .ofPattern("yyyyMMdd'T'HHmmss'Z'")
@@ -57,7 +57,7 @@ object DatasetWriter:
     val entry = Json.obj(
       "plan" -> transcript.toPlan.asJson,
       "transcript" -> transcript.toJson,
-      "evaluation" -> EvalResult.given_Encoder_EvalResult(evalResult),
+      "evaluation" -> EvalResult.given_Encoder_EvalResult(evalResult)
     )
 
     Files.writeString(outputPath, entry.spaces2)

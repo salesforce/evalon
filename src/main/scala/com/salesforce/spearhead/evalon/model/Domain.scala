@@ -20,9 +20,10 @@ package com.salesforce.spearhead.evalon.model
 import io.circe.*
 import io.circe.syntax.*
 
-/** Signal constants used in prompts and checked by the simulator/agent. Scenario YAML prompts must
-  * use these exact strings.
-  */
+/**
+ * Signal constants used in prompts and checked by the simulator/agent. Scenario YAML prompts must
+ * use these exact strings.
+ */
 object Signals:
   val NoQuestion = "[NO_QUESTION]"
   val NoAction = "[NO_ACTION]"
@@ -57,10 +58,10 @@ object ToolCall:
   }
 
 case class ToolResult(
-  toolName: String,
-  arguments: Map[String, Json],
-  result: Json,
-  error: Option[String] = None,
+    toolName: String,
+    arguments: Map[String, Json],
+    result: Json,
+    error: Option[String] = None
 )
 
 object ToolResult:
@@ -68,7 +69,7 @@ object ToolResult:
     val base = Json.obj(
       "tool_name" -> tr.toolName.asJson,
       "arguments" -> tr.arguments.asJson,
-      "result" -> tr.result,
+      "result" -> tr.result
     )
     tr.error.fold(base)(e => base.deepMerge(Json.obj("error" -> e.asJson)))
   }
@@ -117,7 +118,7 @@ object Action:
       sender: String,
       content: String,
       toolInteractions: List[ToolInteraction] = Nil,
-      trace: Option[Json] = None,
+      trace: Option[Json] = None
   ): Action =
     Action.Send(Message(sender, content, trace), toolInteractions)
 
@@ -126,7 +127,7 @@ object Action:
       Json.obj(
         "type" -> "send".asJson,
         "message" -> message.asJson,
-        "tool_interactions" -> toolInteractions.asJson,
+        "tool_interactions" -> toolInteractions.asJson
       )
     case Action.End =>
       Json.obj("type" -> "end".asJson)

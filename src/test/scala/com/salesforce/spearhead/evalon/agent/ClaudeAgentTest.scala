@@ -30,9 +30,10 @@ class ClaudeAgentTest extends AnyFunSuite:
 
   private given ExecutionContext = ExecutionContext.global
 
-  /** A client that always requests a (nonexistent) tool, so the agent's loop never reaches a final
-    * text answer and keeps recursing until maxToolRounds is exhausted.
-    */
+  /**
+   * A client that always requests a (nonexistent) tool, so the agent's loop never reaches a final
+   * text answer and keeps recursing until maxToolRounds is exhausted.
+   */
   private class ToolLoopingClient
       extends AnthropicClient("http://unused", "unused", backend = null):
     override def createMessage(request: CreateMessageRequest): Future[CreateMessageResponse] =

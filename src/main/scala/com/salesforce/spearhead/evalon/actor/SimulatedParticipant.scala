@@ -23,7 +23,7 @@ import scala.util.{Failure, Random, Success}
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors, TimerScheduler}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
-import com.salesforce.spearhead.evalon.llm.{Llm, ChatMessage}
+import com.salesforce.spearhead.evalon.llm.{ChatMessage, Llm}
 import com.salesforce.spearhead.evalon.model.{
   Action,
   ConversationConfig,
@@ -136,10 +136,10 @@ Respond with only your message content. Your output is delivered to the other pa
 
   private def thinkingDelay(setup: Setup): FiniteDuration =
     setup.config.responseSpeed match
-      case Some(ResponseSpeed.Fast)   => (2000 + Random.nextInt(1000)).millis
+      case Some(ResponseSpeed.Fast) => (2000 + Random.nextInt(1000)).millis
       case Some(ResponseSpeed.Medium) => (5000 + Random.nextInt(1000)).millis
-      case Some(ResponseSpeed.Slow)   => (8000 + Random.nextInt(2000)).millis
-      case None                       => 0.millis
+      case Some(ResponseSpeed.Slow) => (8000 + Random.nextInt(2000)).millis
+      case None => 0.millis
 
   /** Idle state — waiting for messages. */
   private def idle(

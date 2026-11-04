@@ -81,7 +81,8 @@ If you have no useful information, recommendations, or actions to contribute, re
     val agent: Agent = evaluatedEndpoint match
       case Some(url) =>
         // Force HTTP/1.1 to avoid upgrade requests that uvicorn rejects
-        val httpClient = HttpClient.newBuilder()
+        val httpClient = HttpClient
+          .newBuilder()
           .version(HttpClient.Version.HTTP_1_1)
           .build()
         val backend = sttp.client4.httpclient.HttpClientFutureBackend.usingClient(httpClient)

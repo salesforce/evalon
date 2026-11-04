@@ -6,3 +6,6 @@ addSbtPlugin("com.github.sbt" % "sbt-header" % "5.11.0")
 
 // Tag-driven publishing to Maven Central (bundles sbt-dynver, sbt-pgp, sbt-sonatype)
 addSbtPlugin("com.github.sbt" % "sbt-ci-release" % "1.12.1")
+
+addSbtPlugin("org.scalameta" % "sbt-scalafmt" % "2.6.2")
+addSbtPlugin("ch.epfl.scala" % "sbt-scalafix" % "0.14.9")

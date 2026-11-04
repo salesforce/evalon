@@ -22,16 +22,17 @@ import io.circe.syntax.*
 
 import com.salesforce.spearhead.evalon.model.{Action, Event, HistoryEntry}
 
-/** Wire format for `POST /v1/step`.
-  *
-  * Mirrors the in-process `Agent.step(history, events, respondIn)` signature with a
-  * `protocol_version` field for future-proofing.
-  */
+/**
+ * Wire format for `POST /v1/step`.
+ *
+ * Mirrors the in-process `Agent.step(history, events, respondIn)` signature with a
+ * `protocol_version` field for future-proofing.
+ */
 case class StepRequest(
-  protocolVersion: String,
-  history: List[HistoryEntry],
-  events: List[Event],
-  respondIn: String,
+    protocolVersion: String,
+    history: List[HistoryEntry],
+    events: List[Event],
+    respondIn: String
 )
 
 object StepRequest:
@@ -42,7 +43,7 @@ object StepRequest:
       "protocol_version" -> r.protocolVersion.asJson,
       "history" -> r.history.asJson,
       "events" -> r.events.asJson,
-      "respond_in" -> r.respondIn.asJson,
+      "respond_in" -> r.respondIn.asJson
     )
   }
 

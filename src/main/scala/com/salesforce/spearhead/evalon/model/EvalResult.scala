@@ -21,18 +21,18 @@ import io.circe.*
 import io.circe.syntax.*
 
 case class CriterionResult(
-  criterion: EvalCriterion,
-  passed: Boolean,
-  reasoning: String,
-  score: Double,
+    criterion: EvalCriterion,
+    passed: Boolean,
+    reasoning: String,
+    score: Double
 )
 
 case class EvalResult(
-  scenarioName: String,
-  criterionResults: List[CriterionResult],
-  overallScore: Double,
-  overallPassed: Boolean,
-  summary: String,
+    scenarioName: String,
+    criterionResults: List[CriterionResult],
+    overallScore: Double,
+    overallPassed: Boolean,
+    summary: String
 )
 
 object EvalResult:
@@ -47,8 +47,8 @@ object EvalResult:
           "description" -> cr.criterion.description.asJson,
           "passed" -> cr.passed.asJson,
           "score" -> cr.score.asJson,
-          "reasoning" -> cr.reasoning.asJson,
+          "reasoning" -> cr.reasoning.asJson
         )
-      }.asJson,
+      }.asJson
     )
   }
