@@ -1,5 +1,5 @@
-lazy val PekkoVersion = "1.7.0"
-lazy val SttpVersion = "4.0.26"
+lazy val PekkoVersion = "1.7.1"
+lazy val SttpVersion = "4.1.1"
 
 // Publishing metadata for Maven Central (via sbt-ci-release / Central Portal).
 // The version is derived from git tags by sbt-dynver — do not set `version` here.
@@ -26,7 +26,7 @@ inThisBuild(Seq(
 lazy val root = (project in file("."))
   .settings(
     name := "evalon",
-    scalaVersion := "3.8.2",
+    scalaVersion := "3.9.0",
     headerLicense := Some(HeaderLicense.Custom(
       """|Copyright (c) 2025, Salesforce, Inc.
          |SPDX-License-Identifier: Apache-2
@@ -49,7 +49,7 @@ lazy val root = (project in file("."))
       "io.circe" %% "circe-core",
       "io.circe" %% "circe-generic",
       "io.circe" %% "circe-parser"
-    ).map(_ % "0.14.16") ++
+    ).map(_ % "0.14.17") ++
     Seq(
       // YAML
       "io.circe" %% "circe-yaml" % "1.15.0",
@@ -58,7 +58,7 @@ lazy val root = (project in file("."))
       // Logging
       "org.slf4j" % "slf4j-api",
       "org.slf4j" % "slf4j-simple",
-    ).map(_ % "2.0.19") ++
+    ).map(_ % "2.0.20") ++
     Seq(
       // Pekko (actor framework)
       "org.apache.pekko" %% "pekko-actor-typed" % PekkoVersion,
