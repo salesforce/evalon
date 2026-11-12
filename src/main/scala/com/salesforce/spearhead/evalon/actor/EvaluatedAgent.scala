@@ -151,7 +151,15 @@ object EvaluatedAgent:
 
     case (_, Participant.ReceiveEvents(events)) =>
       val (newHistory, systemEvents) = absorbEvents(history, events)
-      val newPending = pending.copy(events = pending.events ++ systemEvents)
+      // Observed conversation messages become history, not pending events, so on their own they
+      // would not trigger another step. Queue one in the agent's direct conversation (matching
+      // idle's handling) so the agent gets to react to what it observed mid-step.
+      val observedTurns = events.exists(_.name == "conversation_message")
+      val newConversations =
+        if observedTurns then pending.conversations + directConversations.head
+        else pending.conversations
+      val newPending =
+        Pending(conversations = newConversations, events = pending.events ++ systemEvents)
       generating(agent, runner, agentName, directConversations, newHistory, newPending)
 
     case (ctx, AgentResult(Failure(e), _)) =>
