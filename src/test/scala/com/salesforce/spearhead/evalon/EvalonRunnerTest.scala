@@ -177,6 +177,30 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     })
   }
 
+  test("a mismatched raw sender is normalized in the transcript without self-delivery") {
+    val histories = new java.util.concurrent.ConcurrentLinkedQueue[List[HistoryEntry]]()
+    val calls = new AtomicInteger()
+    val agent = new Agent:
+      def step(h: List[HistoryEntry], e: List[Event], r: String): Future[Action] =
+        histories.add(h)
+        Future.successful(
+          if calls.getAndIncrement() == 0 then Action.send("remote-bot", "unique answer")
+          else Action.End
+        )
+
+    val result =
+      evalon.run(scenario("sender-normalization"), agent, judgeAndChatLlm, failFastOptions)
+    val answers = result.scalaTranscript.messages.filter(_.content == "unique answer")
+    assert(answers.size == 1)
+    assert(answers.head.sender == "agent")
+    histories.poll()
+    val followup = histories.poll()
+    assert(followup != null)
+    assert(followup.collect { case HistoryEntry.Turn(_, sender, "unique answer", _) =>
+      sender
+    } == List("agent"))
+  }
+
   test("a successful empty send is treated as silence, not an agent failure") {
     // Empty content is a real "say nothing": it must not become AgentStepFailedException.
     // With nothing delivered, the conversation stalls and the run times out instead.
