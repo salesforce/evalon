@@ -235,7 +235,12 @@ Respond with only your message content. Your output is delivered to the other pa
       Behaviors.same
   }
 
-  /** Generating state — LLM call in flight. Accumulate incoming messages. */
+  /**
+   * Generating state — LLM call in flight. Accumulate incoming messages, and queue a response for
+   * every conversation that receives one, including the active one: the in-flight call was built
+   * before the message arrived, so its reply cannot address it. (Thinking differs: there the call
+   * hasn't started yet and will include the message.)
+   */
   private def generating(
       setup: Setup,
       history: Map[String, List[ChatMessage]],
@@ -245,9 +250,7 @@ Respond with only your message content. Your output is delivered to the other pa
   ): Behavior[Cmd] = Behaviors.receive {
     case (_, Participant.ReceiveMessage(msg, conversation)) =>
       val newHistory = appendToHistory(setup.config, history, msg, conversation)
-      val newPending =
-        if conversation == activeConversation then cycle.pending
-        else cycle.pending + conversation
+      val newPending = cycle.pending + conversation
       generating(setup, newHistory, activeConversation, cycle.copy(pending = newPending), timers)
 
     case (_, Participant.ReceiveEvents(_)) =>
