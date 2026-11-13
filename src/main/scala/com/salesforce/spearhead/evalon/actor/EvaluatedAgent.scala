@@ -178,8 +178,12 @@ object EvaluatedAgent:
       Behaviors.stopped
 
     case (ctx, AgentResult(Success(action), conversation)) =>
-      runner ! ScenarioRunner.ParticipantResponse(agentName, conversation, action)
-      val newHistory = recordAction(history, agentName, conversation, action)
+      val normalized = action match
+        case Action.Send(message, tools) =>
+          Action.Send(message.copy(sender = agentName), tools)
+        case Action.End => Action.End
+      runner ! ScenarioRunner.ParticipantResponse(agentName, conversation, normalized)
+      val newHistory = recordAction(history, agentName, conversation, normalized)
 
       pending.conversations.headOption match
         case Some(conv) =>

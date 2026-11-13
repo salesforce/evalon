@@ -106,3 +106,38 @@ class EvaluatedAgentTest extends AnyFunSuite with BeforeAndAfterAll:
     runner.expectMessageType[ScenarioRunner.ParticipantResponse]
     assert(agent.calls.poll(200, TimeUnit.MILLISECONDS) == null, "no further steps expected")
   }
+
+  test("outgoing sender matches participant identity while preserving trace and tool history") {
+    val runner = testKit.createTestProbe[ScenarioRunner.Command]()
+    val agent = ControlledAgent()
+    val actor = testKit.spawn(EvaluatedAgent(agent, runner.ref, "assistant", Set("assist")))
+    val trace = Some("trace".asJson)
+    val tool = ToolInteraction(
+      ToolCall("lookup", Map.empty),
+      ToolResult("lookup", Map.empty, "found".asJson)
+    )
+
+    actor ! Participant.ReceiveMessage(Message("user", "hello"), "assist")
+    agent.nextCall().reply.success(Action.send("remote-bot", "answer", List(tool), trace))
+    val response = runner.expectMessageType[ScenarioRunner.ParticipantResponse]
+    assert(
+      response == ScenarioRunner.ParticipantResponse(
+        "assistant",
+        "assist",
+        Action.send("assistant", "answer", List(tool), trace)
+      )
+    )
+
+    actor ! Participant.ReceiveMessage(Message("user", "continue"), "assist")
+    val next = agent.nextCall()
+    assert(
+      next.history == List(
+        HistoryEntry.Turn("assist", "user", "hello", None),
+        HistoryEntry.ToolUse("assist", tool),
+        HistoryEntry.Turn("assist", "assistant", "answer", trace),
+        HistoryEntry.Turn("assist", "user", "continue", None)
+      )
+    )
+    next.reply.success(Action.End)
+    runner.expectMessage(ScenarioRunner.ParticipantResponse("assistant", "assist", Action.End))
+  }
