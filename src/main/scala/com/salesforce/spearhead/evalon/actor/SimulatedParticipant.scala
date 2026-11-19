@@ -103,9 +103,15 @@ object SimulatedParticipant:
     val endInstruction =
       s"Use ${Signals.End} ONLY when the conversation is genuinely complete: your goal has been achieved or the other party has clearly wrapped up. Never include ${Signals.End} while you are mid-task, waiting for information, or correcting yourself. When in doubt, do not end."
 
+    // Where this turn's reply goes. The runner posts the reply to `conversation` whatever the model
+    // intended, so like the [END] rule this is harness context, included with or without a template.
+    val routing =
+      s"""You are currently responding in the "$conversation" conversation with: $others
+Address your response to them. Do NOT address participants from other conversations here."""
+
     config.template.map(_.trim).filter(_.nonEmpty) match
       case Some(template) =>
-        s"$template\n\n$endInstruction$contextSection"
+        s"$template\n\n$routing\n\n$endInstruction$contextSection"
       case None =>
         s"""You are role-playing as a simulated participant.
 
@@ -113,8 +119,7 @@ Your name/role: ${config.name}
 Your persona: ${config.persona}
 Your goal: ${config.goal}
 
-You are currently responding in the "$conversation" conversation with: $others
-Address your response to them. Do NOT address participants from other conversations here.
+$routing
 Stay in character. Respond naturally based on the conversation so far.
 
 $endInstruction

@@ -33,7 +33,7 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
   override def afterAll(): Unit = testKit.shutdownTestKit()
 
   /** One LLM call made by the participant, completed by the test via `reply`. */
-  private case class LlmCall(messages: List[ChatMessage]):
+  private case class LlmCall(system: String, messages: List[ChatMessage]):
     val result: CompletableFuture[String] = CompletableFuture()
     def reply(text: String): Unit = result.complete(text)
 
@@ -41,7 +41,7 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
   private class ControlledLlm extends Llm:
     val calls = LinkedBlockingQueue[LlmCall]()
     def completeChat(system: String, messages: List[ChatMessage]): CompletionStage[String] =
-      val call = LlmCall(messages)
+      val call = LlmCall(system, messages)
       calls.put(call)
       call.result
 
@@ -58,11 +58,9 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
     "agent_assist" -> ConversationConfig("agent_assist", List("agent", "rep"))
   )
 
-  private def spawnRep(llm: Llm) =
+  private def spawnRep(llm: Llm, config: ParticipantConfig = ParticipantConfig("rep")) =
     val runner = testKit.createTestProbe[ScenarioRunner.Command]()
-    val rep = testKit.spawn(
-      SimulatedParticipant(ParticipantConfig("rep"), llm, runner.ref, conversations)
-    )
+    val rep = testKit.spawn(SimulatedParticipant(config, llm, runner.ref, conversations))
     (rep, runner)
 
   test("a message arriving in the conversation being generated for is answered afterward") {
@@ -139,4 +137,49 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(second.messages.last.content.contains("HTL-9012"))
     second.reply(Signals.NoQuestion)
     llm.assertNoMoreCalls()
+  }
+
+  /**
+   * Drive the rep through a support_chat reply, then an agent_assist turn and its support_chat
+   * follow-up, returning the system prompts of those last two turns.
+   */
+  private def assistAndFollowUpPrompts(config: ParticipantConfig): (String, String) =
+    val llm = ControlledLlm()
+    val (rep, runner) = spawnRep(llm, config)
+    rep ! Participant.ReceiveMessage(Message("end_user", "I want to cancel"), "support_chat")
+    llm.nextCall().reply("Sure, one moment.")
+    runner.expectMessageType[ScenarioRunner.ParticipantResponse]
+    llm.assertNoMoreCalls()
+
+    rep ! Participant.ReceiveMessage(Message("agent", "Ask for their email."), "agent_assist")
+    val assist = llm.nextCall()
+    assist.reply("Will do.")
+    runner.expectMessageType[ScenarioRunner.ParticipantResponse]
+    val followUp = llm.nextCall()
+    followUp.reply(Signals.NoQuestion)
+    llm.assertNoMoreCalls()
+    (assist.system, followUp.system)
+
+  private val assistLine = "responding in the \"agent_assist\" conversation with: agent"
+  private val supportLine = "responding in the \"support_chat\" conversation with: end_user"
+
+  test("a templated participant is told which conversation it is responding in") {
+    val template = "You are Sam, a support rep. Follow the assistant's guidance."
+    val (assist, followUp) =
+      assistAndFollowUpPrompts(ParticipantConfig("rep", template = Some(template)))
+
+    for (prompt, line) <- List(assist -> assistLine, followUp -> supportLine) do
+      assert(prompt.startsWith(template))
+      assert(prompt.contains(line), s"missing routing line in:\n$prompt")
+      assert(prompt.contains("Do NOT address participants from other conversations here."))
+      assert(prompt.contains(Signals.End))
+  }
+
+  test("the default prompt names the conversation exactly once") {
+    val (assist, followUp) = assistAndFollowUpPrompts(
+      ParticipantConfig("rep", persona = "You are Sam.", goal = "Resolve the request.")
+    )
+    for (prompt, line) <- List(assist -> assistLine, followUp -> supportLine) do
+      assert(prompt.startsWith("You are role-playing as a simulated participant."))
+      assert(prompt.sliding(line.length).count(_ == line) == 1, s"in:\n$prompt")
   }
