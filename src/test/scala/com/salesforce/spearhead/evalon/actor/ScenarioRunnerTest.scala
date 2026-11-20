@@ -142,6 +142,29 @@ class ScenarioRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(expectCompleted(probe)._2 == StopReason.Idle)
   }
 
+  test("a run with two evaluated participants still completes as idle") {
+    // Both receive the user's message. Each must report idle under its own name, or the runner's
+    // count for the second never matches and the run hangs.
+    val base = scenario()
+    val twoAgents = base.copy(
+      participants = Map(
+        "end_user" -> ParticipantConfig("end_user", ParticipantType.Simulated),
+        "agent" -> ParticipantConfig("agent", ParticipantType.Evaluated),
+        "supervisor" -> ParticipantConfig("supervisor", ParticipantType.Evaluated)
+      ),
+      conversations = List(
+        ConversationConfig(
+          "chat",
+          List("end_user", "agent", "supervisor"),
+          initiatedBy = Some("end_user")
+        )
+      )
+    )
+    val agent = ScriptedAgent((_, _) => silent)
+    val (_, probe) = run(twoAgents, agent, userLlm)
+    assert(expectCompleted(probe)._2 == StopReason.Idle)
+  }
+
   test("[END] and max_turns report their stop reasons") {
     val ending = ScriptedAgent((_, _) => Action.End)
     val (_, endProbe) = run(scenario(), ending, userLlm)

@@ -55,9 +55,12 @@ object EvaluatedAgent:
       agent: Agent,
       runner: ActorRef[ScenarioRunner.Command],
       agentName: String,
-      directConversations: Set[String]
+      directConversations: Set[String],
+      participantName: String
   ): Behavior[Participant.Command | AgentResult] =
-    given IdleReporter = IdleReporter(agentName, runner)
+    // Idle reports must carry this actor's own participant name, which the runner counts its
+    // deliveries under. `agentName` can differ when a scenario has several evaluated participants.
+    given IdleReporter = IdleReporter(participantName, runner)
     idle(agent, runner, agentName, directConversations, Nil)
 
   private def idle(

@@ -133,7 +133,7 @@ object ScenarioRunner:
       val participants: Map[String, ActorRef[Participant.Command]] = scenario.participants.map {
         case (name, config) if config.participantType == ParticipantType.Evaluated =>
           name -> ctx.spawn(
-            EvaluatedAgent(agent, ctx.self, agentName, agentDirectConversations),
+            EvaluatedAgent(agent, ctx.self, agentName, agentDirectConversations, name),
             s"participant-$name"
           )
         case (name, config) =>
