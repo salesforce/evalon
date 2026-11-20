@@ -139,8 +139,10 @@ object ScenarioRunner:
             s"participant-$name"
           )
         case (name, config) =>
+          // The map key is the participant's identity everywhere else (routing, conversations,
+          // delivery counts), so it overrides a config built in code with a different name.
           name -> ctx.spawn(
-            SimulatedParticipant(config, llm, ctx.self, conversations),
+            SimulatedParticipant(config.copy(name = name), llm, ctx.self, conversations),
             s"participant-$name"
           )
       }

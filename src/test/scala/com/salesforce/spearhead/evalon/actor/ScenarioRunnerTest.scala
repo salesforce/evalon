@@ -183,6 +183,23 @@ class ScenarioRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(!transcript.entries.exists(_.event.exists(_.name == Event.AllWaiting)))
   }
 
+  test("a simulated participant whose config name differs from its key still completes as idle") {
+    // Scenarios built in code can map "end_user" to a config named "customer". The runner counts
+    // deliveries under the key, so idle reports must use the key too.
+    val renamed = scenario().copy(
+      participants = Map(
+        "end_user" -> ParticipantConfig("customer", ParticipantType.Simulated),
+        "agent" -> ParticipantConfig("agent", ParticipantType.Evaluated)
+      )
+    )
+    val agent = ScriptedAgent((_, _) => silent)
+    val (_, probe) = run(renamed, agent, userLlm)
+    val (transcript, reason) = expectCompleted(probe)
+    assert(reason == StopReason.Idle)
+    assert(transcript.messages.exists(_.sender == "end_user"))
+    assert(!transcript.messages.exists(_.sender == "customer"))
+  }
+
   test("a run with two evaluated participants still completes as idle") {
     // Both receive the user's message. Each must report idle under its own name, or the runner's
     // count for the second never matches and the run hangs.
