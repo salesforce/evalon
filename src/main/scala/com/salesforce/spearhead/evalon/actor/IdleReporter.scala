@@ -25,8 +25,13 @@ import org.apache.pekko.actor.typed.ActorRef
  *
  * Call `received()` for every command the runner sends this actor, in every state. Call
  * `reportIdle()` whenever the actor is left with nothing to do and will not act again unless the
- * runner sends it something new: after work finishes, and after handling a delivery that starts no
- * work. LLM results, step results and timers are the actor's own and are not counted.
+ * runner sends it something new: when it starts, after work finishes, and after handling a delivery
+ * that starts no work. LLM results, step results and timers are the actor's own and are not
+ * counted.
+ *
+ * The runner treats an actor that has never reported as busy. So the report at start is required
+ * for an actor that only acts on deliveries, and an actor that can act on its own (a timer, an
+ * external feed) must never report, not even at start.
  *
  * Holds mutable state, so create one per actor instance and use it only from that actor.
  */

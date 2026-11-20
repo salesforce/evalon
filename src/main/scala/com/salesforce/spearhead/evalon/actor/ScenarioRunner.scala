@@ -34,10 +34,12 @@ import com.salesforce.spearhead.evalon.model.*
  * the message limit is reached.
  *
  * It also stops when the run goes idle. The runner counts what it delivers to each participant and
- * event source, and each one reports `Idle(processed)` when it has nothing left to do. When every
- * last-reported count matches what was delivered, nobody is working and nothing is on its way, so
- * nobody will act again. The runner then sends the evaluated agent one `all_waiting` event; if the
- * run goes idle again with nothing new posted, it completes with [[StopReason.Idle]].
+ * event source, and each one reports `Idle(processed)` when it has nothing left to do, starting
+ * with a report when it starts. One that has never reported counts as busy, so a source that can
+ * act on its own simply never reports. When every last-reported count matches what was delivered,
+ * nobody is working and nothing is on its way, so nobody will act again. The runner then sends the
+ * evaluated agent one `all_waiting` event; if the run goes idle again with nothing new posted, it
+ * completes with [[StopReason.Idle]].
  */
 object ScenarioRunner:
 
@@ -196,8 +198,8 @@ object ScenarioRunner:
         )
       }
 
-      // With nothing kicked off, nobody will ever report: the run is idle from the start.
-      checkIdle(ctx, started)
+      // Actors report idle when they start, so a run with nothing kicked off is detected then.
+      running(started)
 
     case (ctx, msg: ParticipantResponse) =>
       ctx.log.warn("ParticipantResponse before Run, ignoring: {}", msg)
@@ -282,10 +284,7 @@ object ScenarioRunner:
    */
   private def checkIdle(ctx: ActorContext[Command], state: RunState): Behavior[Command] =
     val names = state.participants.keySet ++ state.eventSources.keySet
-    val idle = names.forall { name =>
-      state.reported.getOrElse(name, 0) == state.delivered.getOrElse(name, 0)
-    }
-    if !idle then running(state)
+    if !allIdle(names, state.delivered, state.reported) then running(state)
     else
       state.participants.get(state.agentName) match
         // An agent with no conversation of its own has nowhere to answer the event.
@@ -306,6 +305,17 @@ object ScenarioRunner:
         case _ =>
           ctx.log.info("Run is still idle after all_waiting; completing")
           complete(state, StopReason.Idle)
+
+  /**
+   * Whether every named actor's last report matches what was delivered to it. An actor that has
+   * never reported counts as busy, even with nothing delivered: it may be acting on its own.
+   */
+  private[actor] def allIdle(
+      names: Set[String],
+      delivered: Map[String, Int],
+      reported: Map[String, Int]
+  ): Boolean =
+    names.forall(name => reported.get(name).contains(delivered.getOrElse(name, 0)))
 
   /** Send a command to a participant or event source, counting it toward idle detection. */
   private def deliver[T](state: RunState, name: String, ref: ActorRef[T], command: T): RunState =

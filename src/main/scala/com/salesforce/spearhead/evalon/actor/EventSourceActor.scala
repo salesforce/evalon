@@ -34,10 +34,11 @@ import com.salesforce.spearhead.evalon.model.{Event, EventSourceConfig, Transcri
  * Simulated event sources use an LLM to reason about whether new events should be fired.
  *
  * Idle detection: an event source must report idle (see [[IdleReporter]]) only when it won't emit
- * anything unless the runner sends it something new. This one reports when its last in-flight LLM
- * call finishes, and after an update that starts no call. A source that can emit on its own (a
- * timer or an external feed, say) must never report idle; the run then can't end as idle and falls
- * back to the simulation timeout, which is safe.
+ * anything unless the runner sends it something new. This one reports when it starts, when its last
+ * in-flight LLM call finishes, and after an update that starts no call. A source that can emit on
+ * its own (a timer or an external feed, say) must never report idle, not even at start: the runner
+ * counts a source that has never reported as busy, so the run can't end as idle and falls back to
+ * the simulation timeout, which is safe.
  */
 object EventSourceActor:
 
@@ -52,8 +53,11 @@ object EventSourceActor:
       config: EventSourceConfig,
       llm: Llm,
       runner: ActorRef[ScenarioRunner.Command]
-  ): Behavior[Command] =
-    simulated(config, llm, runner, Vector.empty, inFlight = 0, IdleReporter(config.name, runner))
+  ): Behavior[Command] = Behaviors.setup { _ =>
+    val reporter = IdleReporter(config.name, runner)
+    reporter.reportIdle() // passive: nothing to emit until the runner sends an update
+    simulated(config, llm, runner, Vector.empty, inFlight = 0, reporter)
+  }
 
   private val systemPromptTemplate: String =
     """You are a simulated event source in a scenario simulation.

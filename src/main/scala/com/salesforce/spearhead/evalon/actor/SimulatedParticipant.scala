@@ -137,8 +137,11 @@ Respond with only your message content. Your output is delivered to the other pa
       runner: ActorRef[ScenarioRunner.Command],
       conversations: Map[String, ConversationConfig] = Map.empty
   ): Behavior[Cmd] =
-    val setup = Setup(config, llm, runner, conversations, IdleReporter(config.name, runner))
-    Behaviors.withTimers(timers => idle(setup, Map.empty, timers))
+    Behaviors.setup { _ =>
+      val setup = Setup(config, llm, runner, conversations, IdleReporter(config.name, runner))
+      setup.idleReporter.reportIdle() // waits for a message before it speaks
+      Behaviors.withTimers(timers => idle(setup, Map.empty, timers))
+    }
 
   private def thinkingDelay(setup: Setup): FiniteDuration =
     setup.config.responseSpeed match

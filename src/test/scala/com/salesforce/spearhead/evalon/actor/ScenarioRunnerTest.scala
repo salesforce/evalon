@@ -112,6 +112,27 @@ class ScenarioRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(agent.allWaitingSeen == 2)
   }
 
+  test("an actor that has never reported counts as busy, even with nothing delivered") {
+    // A timer-driven source never reports. Defaulting its missing report to zero would match its
+    // zero deliveries and let the run end before the timer fires.
+    val names = Set("agent", "timer_source")
+    assert(!ScenarioRunner.allIdle(names, delivered = Map.empty, reported = Map("agent" -> 0)))
+    assert(ScenarioRunner.allIdle(names, Map.empty, Map("agent" -> 0, "timer_source" -> 0)))
+    assert(
+      !ScenarioRunner.allIdle(names, Map("agent" -> 1), Map("agent" -> 0, "timer_source" -> 0))
+    )
+  }
+
+  test("a run with no initiator gets all_waiting from the start reports") {
+    val noInitiator = scenario().copy(
+      conversations = List(ConversationConfig("chat", List("end_user", "agent")))
+    )
+    val agent = ScriptedAgent((_, _) => silent)
+    val (_, probe) = run(noInitiator, agent, userLlm)
+    assert(expectCompleted(probe)._2 == StopReason.Idle)
+    assert(agent.allWaitingSeen == 1)
+  }
+
   test("a stale idle report does not end the run") {
     // The user's LLM call never finishes, so the user is busy with the kickoff it was delivered.
     val pending = CompletableFuture[String]()

@@ -60,8 +60,11 @@ object EvaluatedAgent:
   ): Behavior[Participant.Command | AgentResult] =
     // Idle reports must carry this actor's own participant name, which the runner counts its
     // deliveries under. `agentName` can differ when a scenario has several evaluated participants.
-    given IdleReporter = IdleReporter(participantName, runner)
-    idle(agent, runner, agentName, directConversations, Nil)
+    Behaviors.setup { _ =>
+      given reporter: IdleReporter = IdleReporter(participantName, runner)
+      reporter.reportIdle() // steps only on deliveries
+      idle(agent, runner, agentName, directConversations, Nil)
+    }
 
   private def idle(
       agent: Agent,
