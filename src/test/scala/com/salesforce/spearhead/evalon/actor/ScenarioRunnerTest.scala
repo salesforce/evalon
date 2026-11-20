@@ -133,6 +133,13 @@ class ScenarioRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(agent.allWaitingSeen == 1)
   }
 
+  test("a scenario with no participants or event sources completes as idle at once") {
+    // Nobody exists to send an idle report, so the runner must check at startup.
+    val empty = scenario().copy(participants = Map.empty, conversations = Nil)
+    val (_, probe) = run(empty, ScriptedAgent((_, _) => silent), userLlm)
+    assert(expectCompleted(probe)._2 == StopReason.Idle)
+  }
+
   test("a stale idle report does not end the run") {
     // The user's LLM call never finishes, so the user is busy with the kickoff it was delivered.
     val pending = CompletableFuture[String]()

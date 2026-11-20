@@ -200,8 +200,10 @@ object ScenarioRunner:
         )
       }
 
-      // Actors report idle when they start, so a run with nothing kicked off is detected then.
-      running(started)
+      // Actors report idle when they start, so a run with nothing kicked off is detected then. With
+      // no actors there is nobody to report; checking now ends that run. Existing actors haven't
+      // reported yet, so they still count as busy and this changes nothing for them.
+      checkIdle(ctx, started)
 
     case (ctx, msg: ParticipantResponse) =>
       ctx.log.warn("ParticipantResponse before Run, ignoring: {}", msg)
