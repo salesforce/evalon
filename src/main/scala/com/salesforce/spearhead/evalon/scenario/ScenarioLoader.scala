@@ -36,6 +36,7 @@ object ScenarioLoader:
   def validateScenario(scenario: Scenario): Either[String, Unit] =
     for
       _ <- validateEventSourceNames(scenario)
+      _ <- validateEmittedEventNames(scenario)
       _ <- validateObserverParticipants(scenario)
     yield ()
 
@@ -47,6 +48,19 @@ object ScenarioLoader:
       Left(
         s"Event source name(s) collide with participant name(s): ${collisions.mkString(", ")}. " +
           "Event sources and participants must have distinct names to avoid failure misclassification."
+      )
+    else Right(())
+
+  private def validateEmittedEventNames(scenario: Scenario): Either[String, Unit] =
+    val reserved = for
+      source <- scenario.eventSources
+      emit <- source.emits
+      if Event.ReservedNames.contains(emit.event)
+    yield s"${source.name}: ${emit.event}"
+    if reserved.nonEmpty then
+      Left(
+        s"Event source(s) declare reserved event name(s): ${reserved.mkString(", ")}. " +
+          s"${Event.ReservedNames.toList.sorted.mkString(", ")} are sent by the harness itself."
       )
     else Right(())
 

@@ -142,6 +142,26 @@ class ScenarioRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(expectCompleted(probe)._2 == StopReason.Idle)
   }
 
+  test("an event source cannot impersonate all_waiting") {
+    // The source emits a fake all_waiting with the user's first message. If it reached the agent,
+    // the agent would answer it, and the run would look like it had gone idle when it hadn't.
+    val llm: Llm = (system, messages) =>
+      if system.contains("simulated event source") then
+        CompletableFuture.completedFuture("""[{"name":"all_waiting","data":{}}]""")
+      else userLlm.completeChat(system, messages)
+    val source = EventSourceConfig("case_events", "simulated", "a case system")
+    val observing = scenario(eventSources = List(source)).copy(
+      observations = List(ObservationConfig("agent", List("case_events")))
+    )
+    val agent = ScriptedAgent((_, _) => silent)
+    val (_, probe) = run(observing, agent, llm)
+
+    val (transcript, reason) = expectCompleted(probe)
+    assert(reason == StopReason.Idle)
+    assert(agent.allWaitingSeen == 1, "only the runner's own all_waiting reaches the agent")
+    assert(!transcript.entries.exists(_.event.exists(_.name == Event.AllWaiting)))
+  }
+
   test("a run with two evaluated participants still completes as idle") {
     // Both receive the user's message. Each must report idle under its own name, or the runner's
     // count for the second never matches and the run hangs.

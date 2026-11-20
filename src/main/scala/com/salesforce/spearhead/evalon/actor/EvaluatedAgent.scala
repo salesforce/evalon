@@ -113,7 +113,7 @@ object EvaluatedAgent:
       history: List[HistoryEntry],
       events: List[Event]
   ): (List[HistoryEntry], List[Event]) =
-    val (convEvents, systemEvents) = events.partition(_.name == "conversation_message")
+    val (convEvents, systemEvents) = events.partition(_.name == Event.ConversationMessage)
     val turns = convEvents.map { e =>
       val conv = e.data.get("conversation").flatMap(_.asString).getOrElse("unknown")
       val sender = e.data.get("sender").flatMap(_.asString).getOrElse("unknown")
@@ -163,7 +163,7 @@ object EvaluatedAgent:
       // Observed conversation messages become history, not pending events, so on their own they
       // would not trigger another step. Queue one in the agent's direct conversation (matching
       // idle's handling) so the agent gets to react to what it observed mid-step.
-      val observedTurns = events.exists(_.name == "conversation_message")
+      val observedTurns = events.exists(_.name == Event.ConversationMessage)
       val newConversations =
         if observedTurns then pending.conversations + directConversations.head
         else pending.conversations

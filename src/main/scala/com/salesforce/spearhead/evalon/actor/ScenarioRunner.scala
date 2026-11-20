@@ -72,7 +72,7 @@ object ScenarioRunner:
    * detected, not as an instruction; remote agents may match on the name, so treat it as API.
    */
   private[actor] val AllWaitingEvent = Event(
-    "all_waiting",
+    Event.AllWaiting,
     Map(
       "message" -> ("Every participant is waiting and nothing is in progress. " +
         "The run ends if nothing new is posted.").asJson
@@ -234,18 +234,29 @@ object ScenarioRunner:
           if count >= newState.scenario.maxTurns * 2 then complete(newState, StopReason.MaxTurns)
           else running(newState)
 
-    case (_, EventSourceEmission(sourceName, events)) =>
-      val recorded = events.foldLeft(state.copy(idleNotified = false)) { (s, event) =>
-        appendEntry(s, TranscriptEntry(event = Some(event)))
-      }
-      val observers = for
-        obs <- recorded.scenario.observations
-        if obs.observes.contains(sourceName)
-        ref <- recorded.participants.get(obs.participant)
-      yield obs.participant -> ref
-      running(observers.foldLeft(recorded) { case (s, (name, ref)) =>
-        deliver(s, name, ref, Participant.ReceiveEvents(events))
-      })
+    case (ctx, EventSourceEmission(sourceName, emitted)) =>
+      // An event source's LLM can return any name, so drop the harness's own: an emitted
+      // all_waiting or conversation_message would be indistinguishable from the real signal.
+      val (spoofed, events) = emitted.partition(e => Event.ReservedNames.contains(e.name))
+      if spoofed.nonEmpty then
+        ctx.log.warn(
+          "Dropping event(s) with reserved names from event source {}: {}",
+          sourceName,
+          spoofed.map(_.name).mkString(", ")
+        )
+      if events.isEmpty then running(state)
+      else
+        val recorded = events.foldLeft(state.copy(idleNotified = false)) { (s, event) =>
+          appendEntry(s, TranscriptEntry(event = Some(event)))
+        }
+        val observers = for
+          obs <- recorded.scenario.observations
+          if obs.observes.contains(sourceName)
+          ref <- recorded.participants.get(obs.participant)
+        yield obs.participant -> ref
+        running(observers.foldLeft(recorded) { case (s, (name, ref)) =>
+          deliver(s, name, ref, Participant.ReceiveEvents(events))
+        })
 
     case (ctx, Idle(name, processed)) =>
       checkIdle(ctx, state.copy(reported = state.reported + (name -> processed)))
@@ -343,7 +354,7 @@ object ScenarioRunner:
       // Notify observers
       val events = List(
         Event(
-          "conversation_message",
+          Event.ConversationMessage,
           Map(
             "conversation" -> conversation.asJson,
             "sender" -> msg.sender.asJson,

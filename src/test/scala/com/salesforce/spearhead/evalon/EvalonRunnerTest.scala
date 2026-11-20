@@ -371,6 +371,21 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     finally Files.deleteIfExists(tmpPath)
   }
 
+  test("an event source declaring a reserved event name is rejected at run") {
+    val source = EventSourceConfig(
+      "case_events",
+      "simulated",
+      emits = List(EventEmitConfig(Event.AllWaiting))
+    )
+    val s = scenario("reserved-emit", eventSources = List(source))
+    val agent: SimpleAgent = (_, _, _) => CompletableFuture.completedFuture(AgentReply.end())
+    val ex = intercept[IllegalArgumentException] {
+      evalon.runSimple(s, agent, judgeAndChatLlm, failFastOptions)
+    }
+    assert(ex.getMessage.contains("reserved event name"))
+    assert(ex.getMessage.contains("case_events: all_waiting"))
+  }
+
   test("a directly constructed scenario with a colliding event source is rejected at run") {
     val s =
       scenario("direct-collision", eventSources = List(EventSourceConfig("agent", "simulated")))
