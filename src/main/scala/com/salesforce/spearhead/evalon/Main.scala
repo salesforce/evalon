@@ -102,6 +102,7 @@ If you have no useful information, recommendations, or actions to contribute, re
     val exitCode =
       try
         val result = EvalonRunner(system).run(scenario, agent, client, options)
+        println(s"\nSimulation stopped: ${result.getStopReason}")
         TranscriptPrinter.printEval(result.scalaEvalResult)
 
         val outputDir = Paths.get("target", "evalon-runs")

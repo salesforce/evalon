@@ -50,7 +50,8 @@ object SimulatedParticipant:
       config: ParticipantConfig,
       llm: Llm,
       runner: ActorRef[ScenarioRunner.Command],
-      conversations: Map[String, ConversationConfig]
+      conversations: Map[String, ConversationConfig],
+      idleReporter: IdleReporter
   )
 
   // Internal command (LLM results come back via pipeToSelf)
@@ -136,7 +137,7 @@ Respond with only your message content. Your output is delivered to the other pa
       runner: ActorRef[ScenarioRunner.Command],
       conversations: Map[String, ConversationConfig] = Map.empty
   ): Behavior[Cmd] =
-    val setup = Setup(config, llm, runner, conversations)
+    val setup = Setup(config, llm, runner, conversations, IdleReporter(config.name, runner))
     Behaviors.withTimers(timers => idle(setup, Map.empty, timers))
 
   private def thinkingDelay(setup: Setup): FiniteDuration =
@@ -146,6 +147,15 @@ Respond with only your message content. Your output is delivered to the other pa
       case Some(ResponseSpeed.Slow) => (8000 + Random.nextInt(2000)).millis
       case None => 0.millis
 
+  /** Return to idle at the end of a cycle, telling the runner (for idle detection). */
+  private def goIdle(
+      setup: Setup,
+      history: Map[String, List[ChatMessage]],
+      timers: TimerScheduler[Cmd]
+  ): Behavior[Cmd] =
+    setup.idleReporter.reportIdle()
+    idle(setup, history, timers)
+
   /** Idle state — waiting for messages. */
   private def idle(
       setup: Setup,
@@ -153,6 +163,7 @@ Respond with only your message content. Your output is delivered to the other pa
       timers: TimerScheduler[Cmd]
   ): Behavior[Cmd] = Behaviors.receive {
     case (ctx, Participant.ReceiveMessage(msg, conversation)) =>
+      setup.idleReporter.received()
       val newHistory = appendToHistory(setup.config, history, msg, conversation)
       val cycle = CycleState(
         pending = Set.empty,
@@ -165,6 +176,9 @@ Respond with only your message content. Your output is delivered to the other pa
       // Gap: simulated participants currently ignore observed events. Adding event handling
       // will require deciding how events feed into prompt context and what should trigger a
       // generation. Deferred until a concrete scenario needs it.
+      // Still idle after handling a delivery, so say so: the runner counted it.
+      setup.idleReporter.received()
+      setup.idleReporter.reportIdle()
       Behaviors.same
 
     case (ctx, result: LlmResult) =>
@@ -206,6 +220,7 @@ Respond with only your message content. Your output is delivered to the other pa
   ): Behavior[Cmd] = Behaviors.receive {
 
     case (ctx, Participant.ReceiveMessage(msg, conversation)) =>
+      setup.idleReporter.received()
       val newHistory = appendToHistory(setup.config, history, msg, conversation)
 
       val newCycle =
@@ -233,6 +248,7 @@ Respond with only your message content. Your output is delivered to the other pa
 
     case (_, Participant.ReceiveEvents(_)) =>
       // Gap: see idle's ReceiveEvents handler.
+      setup.idleReporter.received()
       Behaviors.same
 
     case (ctx, result: LlmResult) =>
@@ -254,12 +270,14 @@ Respond with only your message content. Your output is delivered to the other pa
       timers: TimerScheduler[Cmd]
   ): Behavior[Cmd] = Behaviors.receive {
     case (_, Participant.ReceiveMessage(msg, conversation)) =>
+      setup.idleReporter.received()
       val newHistory = appendToHistory(setup.config, history, msg, conversation)
       val newPending = cycle.pending + conversation
       generating(setup, newHistory, activeConversation, cycle.copy(pending = newPending), timers)
 
     case (_, Participant.ReceiveEvents(_)) =>
       // Gap: see idle's ReceiveEvents handler.
+      setup.idleReporter.received()
       Behaviors.same
 
     case (_, ThinkingComplete) =>
@@ -292,7 +310,7 @@ Respond with only your message content. Your output is delivered to the other pa
             conversation,
             Action.End
           )
-          idle(setup, newHistory, timers)
+          goIdle(setup, newHistory, timers)
 
         case ResponseKind.End =>
           setup.runner ! ScenarioRunner.ParticipantResponse(
@@ -300,7 +318,7 @@ Respond with only your message content. Your output is delivered to the other pa
             conversation,
             Action.End
           )
-          idle(setup, history, timers)
+          goIdle(setup, history, timers)
 
         case ResponseKind.Silent =>
           ctx.log.debug("{} responded [NO_QUESTION] in {}", setup.config.name, conversation)
@@ -407,7 +425,7 @@ Respond with only your message content. Your output is delivered to the other pa
             val updatedCycle = cycle.copy(proactiveAttempted = cycle.proactiveAttempted + conv)
             enterThinking(setup, history, conv, updatedCycle, timers, ctx)
           case None =>
-            idle(setup, history, timers)
+            goIdle(setup, history, timers)
 
   private def appendToHistory(
       config: ParticipantConfig,

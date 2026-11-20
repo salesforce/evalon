@@ -57,6 +57,7 @@ object EvaluatedAgent:
       agentName: String,
       directConversations: Set[String]
   ): Behavior[Participant.Command | AgentResult] =
+    given IdleReporter = IdleReporter(agentName, runner)
     idle(agent, runner, agentName, directConversations, Nil)
 
   private def idle(
@@ -65,8 +66,10 @@ object EvaluatedAgent:
       agentName: String,
       directConversations: Set[String],
       history: List[HistoryEntry]
-  ): Behavior[Participant.Command | AgentResult] = Behaviors.receive {
+  )(using reporter: IdleReporter): Behavior[Participant.Command | AgentResult] = Behaviors.receive {
+    // Every delivery while idle starts a step, so idle is reported when that step finishes.
     case (ctx, Participant.ReceiveMessage(msg, conversation)) =>
+      reporter.received()
       val newHistory =
         history :+ HistoryEntry.Turn(conversation, msg.sender, msg.content, msg.trace)
       startStep(
@@ -82,6 +85,7 @@ object EvaluatedAgent:
       )
 
     case (ctx, Participant.ReceiveEvents(events)) =>
+      reporter.received()
       val (newHistory, systemEvents) = absorbEvents(history, events)
       startStep(
         agent,
@@ -142,14 +146,16 @@ object EvaluatedAgent:
       directConversations: Set[String],
       history: List[HistoryEntry],
       pending: Pending
-  ): Behavior[Participant.Command | AgentResult] = Behaviors.receive {
+  )(using reporter: IdleReporter): Behavior[Participant.Command | AgentResult] = Behaviors.receive {
     case (_, Participant.ReceiveMessage(msg, conversation)) =>
+      reporter.received()
       val newHistory =
         history :+ HistoryEntry.Turn(conversation, msg.sender, msg.content, msg.trace)
       val newPending = pending.copy(conversations = pending.conversations + conversation)
       generating(agent, runner, agentName, directConversations, newHistory, newPending)
 
     case (_, Participant.ReceiveEvents(events)) =>
+      reporter.received()
       val (newHistory, systemEvents) = absorbEvents(history, events)
       // Observed conversation messages become history, not pending events, so on their own they
       // would not trigger another step. Queue one in the agent's direct conversation (matching
@@ -207,6 +213,7 @@ object EvaluatedAgent:
             ctx
           )
         case None =>
+          reporter.reportIdle()
           idle(agent, runner, agentName, directConversations, newHistory)
   }
 
@@ -220,7 +227,7 @@ object EvaluatedAgent:
       respondIn: String,
       pending: Pending,
       ctx: ActorContext[Participant.Command | AgentResult]
-  ): Behavior[Participant.Command | AgentResult] =
+  )(using IdleReporter): Behavior[Participant.Command | AgentResult] =
     ctx.pipeToSelf(safeStep(agent, history, events, respondIn))(AgentResult(_, respondIn))
     generating(agent, runner, agentName, directConversations, history, pending)
 

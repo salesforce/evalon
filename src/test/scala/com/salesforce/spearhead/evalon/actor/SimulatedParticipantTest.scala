@@ -19,7 +19,9 @@ package com.salesforce.spearhead.evalon.actor
 
 import java.util.concurrent.{CompletableFuture, CompletionStage, LinkedBlockingQueue, TimeUnit}
 
-import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
+import scala.concurrent.duration.*
+
+import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, FishingOutcomes, TestProbe}
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -58,6 +60,13 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
     "agent_assist" -> ConversationConfig("agent_assist", List("agent", "rep"))
   )
 
+  /** The next response the rep sends the runner, skipping its idle reports. */
+  private def expectResponse(runner: TestProbe[ScenarioRunner.Command]) =
+    runner.fishForMessagePF(5.seconds) {
+      case _: ScenarioRunner.Idle => FishingOutcomes.continueAndIgnore
+      case _: ScenarioRunner.ParticipantResponse => FishingOutcomes.complete
+    }
+
   private def spawnRep(llm: Llm, config: ParticipantConfig = ParticipantConfig("rep")) =
     val runner = testKit.createTestProbe[ScenarioRunner.Command]()
     val rep = testKit.spawn(SimulatedParticipant(config, llm, runner.ref, conversations))
@@ -76,7 +85,7 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
       "support_chat"
     )
     first.reply("Sure, one moment.")
-    runner.expectMessageType[ScenarioRunner.ParticipantResponse]
+    expectResponse(runner)
 
     val second = llm.nextCall()
     // History stays chronological (matching the transcript): the new message precedes the reply
@@ -88,7 +97,7 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(contents.last.contains("your turn to respond"))
 
     second.reply("Yes, you're eligible for a full refund.")
-    runner.expectMessageType[ScenarioRunner.ParticipantResponse]
+    expectResponse(runner)
     llm.assertNoMoreCalls()
   }
 
@@ -99,14 +108,14 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
     // Cycle 1: rep answers the customer, then goes idle.
     rep ! Participant.ReceiveMessage(Message("end_user", "I want to cancel"), "support_chat")
     llm.nextCall().reply("Sure, one moment.")
-    runner.expectMessageType[ScenarioRunner.ParticipantResponse]
+    expectResponse(runner)
     llm.assertNoMoreCalls()
 
     // Cycle 2: agent posts in agent_assist, rep replies there, then proactively revisits
     // support_chat. The customer writes while that follow-up is being generated.
     rep ! Participant.ReceiveMessage(Message("agent", "Free cancellation applies."), "agent_assist")
     llm.nextCall().reply("Thanks.")
-    runner.expectMessageType[ScenarioRunner.ParticipantResponse]
+    expectResponse(runner)
 
     val followUp = llm.nextCall()
     rep ! Participant.ReceiveMessage(
@@ -114,12 +123,12 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
       "support_chat"
     )
     followUp.reply("Good news, cancellation is free.")
-    runner.expectMessageType[ScenarioRunner.ParticipantResponse]
+    expectResponse(runner)
 
     val answer = llm.nextCall()
     assert(answer.messages.exists(_.content.contains("full refund")))
     answer.reply("Yes, the full $500 will be refunded.")
-    runner.expectMessageType[ScenarioRunner.ParticipantResponse]
+    expectResponse(runner)
     llm.assertNoMoreCalls()
   }
 
@@ -131,7 +140,7 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
     val first = llm.nextCall()
     rep ! Participant.ReceiveMessage(Message("agent", "Booking HTL-9012 found."), "agent_assist")
     first.reply("Sure, one moment.")
-    runner.expectMessageType[ScenarioRunner.ParticipantResponse]
+    expectResponse(runner)
 
     val second = llm.nextCall()
     assert(second.messages.last.content.contains("HTL-9012"))
@@ -148,13 +157,13 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
     val (rep, runner) = spawnRep(llm, config)
     rep ! Participant.ReceiveMessage(Message("end_user", "I want to cancel"), "support_chat")
     llm.nextCall().reply("Sure, one moment.")
-    runner.expectMessageType[ScenarioRunner.ParticipantResponse]
+    expectResponse(runner)
     llm.assertNoMoreCalls()
 
     rep ! Participant.ReceiveMessage(Message("agent", "Ask for their email."), "agent_assist")
     val assist = llm.nextCall()
     assist.reply("Will do.")
-    runner.expectMessageType[ScenarioRunner.ParticipantResponse]
+    expectResponse(runner)
     val followUp = llm.nextCall()
     followUp.reply(Signals.NoQuestion)
     llm.assertNoMoreCalls()

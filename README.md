@@ -155,7 +155,7 @@ Evalon retries 429/5xx responses with exponential backoff (3 retries, 1s base). 
 4. Messages are recorded in the transcript and delivered to direct participants (those in the conversation's `between` list)
 5. Observer notifications deliver new messages as events (`ReceiveEvents`) to observing participants
 6. Event sources receive all traffic and may emit additional events
-7. Simulation ends when any participant signals `[END]` or `max_turns` is reached
+7. Simulation ends when any participant signals `[END]`, `max_turns` is reached, or the run goes idle: every participant and event source has handled everything sent to it and nothing is in progress. On the first idle the evaluated agent gets an `all_waiting` system event; if the run is idle again with nothing new posted, it ends. The result's `getStopReason` says which (`End`, `MaxTurns`, `Idle`). An event source that can emit without being sent anything (e.g. on a timer) must never report idle, so such runs end only by `[END]`, `max_turns` or the simulation timeout
 8. The evaluator scores the transcript with **one LLM call per criterion**, then combines weighted scores
 
 ### Scenario YAML format

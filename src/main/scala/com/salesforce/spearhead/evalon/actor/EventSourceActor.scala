@@ -32,6 +32,12 @@ import com.salesforce.spearhead.evalon.model.{Event, EventSourceConfig, Transcri
  * Event source actor — observes simulation traffic and emits derived events.
  *
  * Simulated event sources use an LLM to reason about whether new events should be fired.
+ *
+ * Idle detection: an event source must report idle (see [[IdleReporter]]) only when it won't emit
+ * anything unless the runner sends it something new. This one reports when its last in-flight LLM
+ * call finishes, and after an update that starts no call. A source that can emit on its own (a
+ * timer or an external feed, say) must never report idle; the run then can't end as idle and falls
+ * back to the simulation timeout, which is safe.
  */
 object EventSourceActor:
 
@@ -46,7 +52,8 @@ object EventSourceActor:
       config: EventSourceConfig,
       llm: Llm,
       runner: ActorRef[ScenarioRunner.Command]
-  ): Behavior[Command] = simulated(config, llm, runner, Vector.empty)
+  ): Behavior[Command] =
+    simulated(config, llm, runner, Vector.empty, inFlight = 0, IdleReporter(config.name, runner))
 
   private val systemPromptTemplate: String =
     """You are a simulated event source in a scenario simulation.
@@ -66,10 +73,13 @@ Only emit events when clearly warranted by observed activity. Do not emit events
       config: EventSourceConfig,
       llm: Llm,
       runner: ActorRef[ScenarioRunner.Command],
-      observedEntries: Vector[TranscriptEntry]
+      observedEntries: Vector[TranscriptEntry],
+      inFlight: Int,
+      reporter: IdleReporter
   ): Behavior[Command] = Behaviors.receive { (context, message) =>
     message match
       case SimulationUpdate(entry) =>
+        reporter.received()
         val updated = observedEntries :+ entry
 
         // Only reason about events when we see a new message (not tool results, etc.)
@@ -109,12 +119,16 @@ Only emit events when clearly warranted by observed activity. Do not emit events
             case Failure(e) =>
               EmissionFailed(e)
           }
-          simulated(config, llm, runner, updated)
-        else simulated(config, llm, runner, updated)
+          simulated(config, llm, runner, updated, inFlight + 1, reporter)
+        else
+          if inFlight == 0 then reporter.reportIdle()
+          simulated(config, llm, runner, updated, inFlight, reporter)
 
       case EmissionResult(events) =>
+        // The emission is sent first, so the runner delivers it before it sees the idle report.
         if events.nonEmpty then runner ! ScenarioRunner.EventSourceEmission(config.name, events)
-        Behaviors.same
+        if inFlight == 1 then reporter.reportIdle()
+        simulated(config, llm, runner, observedEntries, inFlight - 1, reporter)
 
       case EmissionFailed(cause) =>
         // A failed event-source LLM call is a broken harness. Fail the run fast rather than

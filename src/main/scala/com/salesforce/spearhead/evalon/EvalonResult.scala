@@ -21,7 +21,7 @@ import java.util
 
 import scala.jdk.CollectionConverters.*
 
-import com.salesforce.spearhead.evalon.model.{EvalResult, Transcript}
+import com.salesforce.spearhead.evalon.model.{EvalResult, StopReason, Transcript}
 
 final class EvalonCriterionResult(
     private val description: String,
@@ -41,6 +41,7 @@ final class EvalonResult(
     private val overallPassed: Boolean,
     private val summary: String,
     private val criterionResults: util.List[EvalonCriterionResult],
+    private val stopReason: StopReason,
     private[evalon] val scalaEvalResult: EvalResult,
     private[evalon] val scalaTranscript: Transcript
 ):
@@ -50,8 +51,11 @@ final class EvalonResult(
   def getSummary: String = summary
   def getCriterionResults: util.List[EvalonCriterionResult] = criterionResults
 
+  /** Why the simulation stopped: [END], `max_turns`, or the run going idle. */
+  def getStopReason: StopReason = stopReason
+
 object EvalonResult:
-  def from(evalResult: EvalResult, transcript: Transcript): EvalonResult =
+  def from(evalResult: EvalResult, transcript: Transcript, stopReason: StopReason): EvalonResult =
     val criteria = evalResult.criterionResults.map { cr =>
       EvalonCriterionResult(
         cr.criterion.description,
@@ -66,6 +70,7 @@ object EvalonResult:
       evalResult.overallPassed,
       evalResult.summary,
       criteria,
+      stopReason,
       evalResult,
       transcript
     )

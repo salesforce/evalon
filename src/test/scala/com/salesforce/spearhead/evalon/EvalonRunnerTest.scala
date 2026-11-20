@@ -179,16 +179,11 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
 
   test("a successful empty send is treated as silence, not an agent failure") {
     // Empty content is a real "say nothing": it must not become AgentStepFailedException.
-    // With nothing delivered, the conversation stalls and the run times out instead.
+    // With nothing delivered, the conversation stalls, so the run ends as idle and is scored.
     val agent: SimpleAgent = (_, _, _) => CompletableFuture.completedFuture(AgentReply.send(""))
-    val options = EvalonRunOptions()
-      .withSimulationTimeout(Duration.ofSeconds(2))
-      .withJudgeTimeout(Duration.ofSeconds(2))
-
-    val thrown = intercept[Throwable] {
-      evalon.runSimple(scenario("empty-send"), agent, judgeAndChatLlm, options)
-    }
-    assert(!thrown.isInstanceOf[AgentStepFailedException])
+    val result = evalon.runSimple(scenario("empty-send"), agent, judgeAndChatLlm, failFastOptions)
+    assert(result.getStopReason == StopReason.Idle)
+    assert(result.getSummary == "ok")
   }
 
   test("a simulated participant's LLM failure fails the run as a harness failure") {
