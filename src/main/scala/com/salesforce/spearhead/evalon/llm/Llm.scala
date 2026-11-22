@@ -19,33 +19,32 @@ package com.salesforce.spearhead.evalon.llm
 
 import java.util.concurrent.{CompletableFuture, CompletionStage, Executor, Executors}
 
-import scala.concurrent.Future
-import scala.jdk.CollectionConverters.*
+import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.FutureConverters.*
 import scala.util.control.NonFatal
 
 /**
  * Pluggable language model for simulated participants, the judge, and event sources.
  *
- * The single method sends a system prompt plus roled turns; how a request is shaped on the wire is
- * entirely the implementation's concern. Callers that only have a bare prompt build the single user
- * message themselves.
+ * The single method sends a system prompt, roled turns and any tools the model may call, and
+ * returns the model's text and tool calls. How a request is shaped on the wire is entirely the
+ * implementation's concern. Simulated participants always pass tools and act only through the calls
+ * they get back, so an implementation must support tool calls; the judge and event sources pass
+ * none and read only the text.
  */
 @FunctionalInterface
 trait Llm:
-  def completeChat(system: String, messages: List[ChatMessage]): CompletionStage[String]
+  def complete(request: LlmRequest): CompletionStage[LlmResponse]
 
 object Llm:
 
   /**
-   * SAM for a synchronous client, so Java callers can write `Llm.blocking((system, messages) ->
-   * ...)`. `messages` is a {@code java.util.List} because a Scala {@code List} is awkward to
-   * iterate from Java; the adapter converts at the boundary. The client owns any flattening it
-   * wants.
+   * SAM for a synchronous client, so Java callers can write `Llm.blocking(request -> ...)`. The
+   * client owns any flattening it wants.
    */
   @FunctionalInterface
   trait Blocking:
-    def completeChat(system: String, messages: java.util.List[ChatMessage]): String
+    def complete(request: LlmRequest): LlmResponse
 
   /**
    * Default executor for [[blocking]] clients: an unbounded cached pool of daemon threads. A
@@ -63,8 +62,8 @@ object Llm:
     }
 
   /**
-   * Adapt a blocking chat function into an [[Llm]], running it on [[blockingExecutor]] so it never
-   * blocks the calling thread (e.g. a Pekko actor dispatcher).
+   * Adapt a blocking client into an [[Llm]], running it on [[blockingExecutor]] so it never blocks
+   * the calling thread (e.g. a Pekko actor dispatcher).
    */
   def blocking(fn: Blocking): Llm =
     blocking(fn, blockingExecutor)
@@ -74,23 +73,35 @@ object Llm:
    * concurrent in-flight calls, or reuse an existing one.
    */
   def blocking(fn: Blocking, executor: Executor): Llm =
-    (system, messages) =>
-      CompletableFuture.supplyAsync(() => fn.completeChat(system, messages.asJava), executor)
+    request => CompletableFuture.supplyAsync(() => fn.complete(request), executor)
 
   /**
    * Adapt a raw {@link Llm}'s {@link CompletionStage} to a {@code Future}, capturing a synchronous
-   * throw or a null return as a failed {@code Future}. The stage is by-name so the untrusted call
-   * runs inside the guard: a raw implementation that throws before returning a stage would
-   * otherwise escape the caller's `pipeToSelf`, killing the actor instead of failing the run fast.
+   * throw, a null stage or a null response as a failed {@code Future}. The call is by-name so the
+   * untrusted code runs inside the guard: a raw implementation that throws before returning a stage
+   * would otherwise escape the caller's `pipeToSelf`, killing the actor instead of failing the run
+   * fast.
    */
-  private def toFuture(stage: => CompletionStage[String]): Future[String] =
-    try
-      val result = stage
-      if result == null then
-        Future.failed(NullPointerException("Llm returned a null CompletionStage"))
-      else result.asScala
-    catch case NonFatal(e) => Future.failed(e)
+  private def toFuture(stage: => CompletionStage[LlmResponse])(using
+      ExecutionContext
+  ): Future[LlmResponse] =
+    val future =
+      try
+        val result = stage
+        if result == null then
+          Future.failed(NullPointerException("Llm returned a null CompletionStage"))
+        else result.asScala
+      catch case NonFatal(e) => Future.failed(e)
+    future.flatMap { response =>
+      if response == null then Future.failed(NullPointerException("Llm returned a null response"))
+      else Future.successful(response)
+    }
 
   extension (llm: Llm)
+    /** Send a request, guarding against a misbehaving implementation (see [[toFuture]]). */
+    def completeAsync(request: LlmRequest): Future[LlmResponse] =
+      toFuture(llm.complete(request))(using ExecutionContext.parasitic)
+
+    /** A plain text call with no tools, for the judge and event sources. */
     def completeAsync(system: String, messages: List[ChatMessage]): Future[String] =
-      toFuture(llm.completeChat(system, messages))
+      completeAsync(LlmRequest(system, messages)).map(_.text)(using ExecutionContext.parasitic)

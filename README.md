@@ -91,7 +91,7 @@ sbt 'set ThisBuild / version := "0.1.0-LOCAL-SNAPSHOT"' publishLocal
 
 ### Concepts
 
-- **Participants** — `simulated` (LLM-driven), `evaluated` (agent under test), or `custom` (user code). Simulated participants may set `template` to replace the default role-play prompt (the current conversation, its participants, and the `[END]` instruction are always appended).
+- **Participants** — `simulated` (LLM-driven), `evaluated` (agent under test), or `custom` (user code). Simulated participants may set `template` to replace the default role-play prompt (the list of their conversations and the tool instructions are always appended).
 - **Conversations** — named channels between participants, with an optional initiator
 - **Observations** — allow a participant to observe messages in conversations it's not directly part of (currently only `EvaluatedAgent` reacts to observed events; `SimulatedParticipant` ignores them — support will be added when a scenario needs it)
 - **Event sources** — actors that observe all simulation traffic and emit derived events (⚠️ experimental: `custom` source type is not wired up, dedup of repeated emissions is not handled, and no shipped scenario exercises this path yet)
@@ -151,12 +151,24 @@ Evalon retries 429/5xx responses with exponential backoff (3 retries, 1s base). 
 
 1. ScenarioRunner spawns all participant and event source actors
 2. Conversations with an `initiated_by` participant kick off; that participant receives a start message
-3. Participants are self-driven: when a message arrives and the actor is idle, it generates a response asynchronously. Messages arriving during generation are accumulated and processed afterward
+3. Participants are self-driven. A simulated participant takes a turn whenever something from another participant is newer than its last prompt. It sees all its conversations in one timeline, tagged `[sender in conversation]` with new lines marked, and acts only through tool calls: `send_message(conversation, text)`, any number of times and to any of its conversations, and `end_conversation()`. No tool call means silence; text outside tool calls is never posted. A conversation with an `initiated_by` is offered to others only once its initiator has spoken. An invalid call (unknown conversation, empty text, unknown tool) is retried once, then fails the run. Messages arriving during generation join the timeline and get another turn afterward
 4. Messages are recorded in the transcript and delivered to direct participants (those in the conversation's `between` list)
 5. Observer notifications deliver new messages as events (`ReceiveEvents`) to observing participants
 6. Event sources receive all traffic and may emit additional events
-7. Simulation ends when any participant signals `[END]`, `max_turns` is reached, or the run goes idle: every participant and event source has handled everything sent to it and nothing is in progress. On the first idle the evaluated agent gets an `all_waiting` system event; if the run is idle again with nothing new posted, it ends. The result's `getStopReason` says which (`End`, `MaxTurns`, `Idle`). Each actor reports idle when it starts, and one that has never reported counts as busy, so an event source that can emit without being sent anything (e.g. on a timer) must never report idle, not even at start; such runs end only by `[END]`, `max_turns` or the simulation timeout
+7. Simulation ends when any participant ends the conversation (`end_conversation`, or `[END]` from an evaluated agent), `max_turns` is reached, or the run goes idle: every participant and event source has handled everything sent to it and nothing is in progress. On the first idle the evaluated agent gets an `all_waiting` system event; if the run is idle again with nothing new posted, it ends. The result's `getStopReason` says which (`End`, `MaxTurns`, `Idle`). Each actor reports idle when it starts, and one that has never reported counts as busy, so an event source that can emit without being sent anything (e.g. on a timer) must never report idle, not even at start; such runs end only by `[END]`, `max_turns` or the simulation timeout
 8. The evaluator scores the transcript with **one LLM call per criterion**, then combines weighted scores
+
+### Plugging in an LLM
+
+`Llm` has one method, `complete(LlmRequest): CompletionStage<LlmResponse>`. A request carries a system prompt, roled messages and the tools the model may call (`LlmTool`: name, description, JSON Schema). A response carries the model's text and its tool calls (`LlmToolCall`: name, arguments as JSON). The judge and event sources send no tools and read only the text; simulated participants always send tools and act only through the calls, so your client must support tool calls. `AnthropicClient` does. For a synchronous Java client:
+
+```java
+Llm llm = Llm.blocking(request -> {
+  // request.getSystem(), request.getMessages(), request.getTools() (getInputSchemaJson())
+  // ... call your model ...
+  return LlmResponse.of(text, List.of(LlmToolCall.of(name, argumentsJson)));
+});
+```
 
 ### Scenario YAML format
 

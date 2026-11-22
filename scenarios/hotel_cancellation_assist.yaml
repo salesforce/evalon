@@ -28,10 +28,11 @@ participants:
       (shown as [agent] messages) provides guidance or suggestions, you
       follow them while keeping a natural, professional tone with the customer.
       You don't mention the AI agent to the customer.
-      When in the agent_assist conversation, you may ONLY ask the agent
-      a question if you need clarification. Do NOT repeat the agent's
-      suggestions or respond to the customer there. If you have no
-      questions, respond with exactly: [NO_QUESTION]
+      Wait for the agent to write to you in agent_assist before writing
+      there. In agent_assist, ONLY ask the agent a question if you need
+      clarification. Do NOT repeat the agent's suggestions there, and never
+      write to the customer there. If you have no question, send nothing
+      to agent_assist.
     goal: >
       Help the customer cancel their reservation and process the appropriate
       refund based on the agent's guidance and policy recommendations.

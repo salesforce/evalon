@@ -49,17 +49,22 @@ class AnthropicClient(
     val requestBody = request.asJson.noSpaces
     sendWithRetry(requestBody)
 
-  override def completeChat(system: String, messages: List[ChatMessage]): CompletionStage[String] =
-    val request = CreateMessageRequest(
+  override def complete(request: LlmRequest): CompletionStage[LlmResponse] =
+    val tools = request.tools.map { tool =>
+      Json.obj(
+        "name" -> tool.name.asJson,
+        "description" -> tool.description.asJson,
+        "input_schema" -> tool.inputSchema
+      )
+    }
+    val apiRequest = CreateMessageRequest(
       model = Settings.defaultModel,
       maxTokens = 2048,
-      system = system,
-      messages = messages.map(_.toJson)
+      system = request.system,
+      messages = request.messages.map(_.toJson),
+      tools = tools
     )
-    createMessage(request).map(textOf).asJava
-
-  private def textOf(response: CreateMessageResponse): String =
-    response.content.collectFirst { case ContentBlock.TextBlock(t) => t }.getOrElse("")
+    createMessage(apiRequest).map(AnthropicClient.toLlmResponse).asJava
 
   private def sendWithRetry(
       requestBody: String,
@@ -95,6 +100,15 @@ class AnthropicClient(
       }
 
 object AnthropicClient:
+
+  /** The response's text blocks joined by newlines, and its tool calls in order. */
+  private[llm] def toLlmResponse(response: CreateMessageResponse): LlmResponse =
+    LlmResponse(
+      text = response.content.collect { case ContentBlock.TextBlock(t) => t }.mkString("\n"),
+      toolCalls = response.content.collect { case ContentBlock.ToolUseBlock(_, name, input) =>
+        LlmToolCall(name, input)
+      }
+    )
 
   def create()(using ExecutionContext): AnthropicClient =
     val sslContext = Settings.caCertsPath

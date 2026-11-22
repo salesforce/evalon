@@ -25,8 +25,9 @@ participants:
       You are Alex, a billing support representative. You rely on AI agent guidance
       to help you through billing disputes. When you receive agent guidance, follow
       their recommendations. You don't mention the AI agent to the customer.
-      When in the agent_assist conversation, you may ask the agent what to do next
-      if unclear. If you understand the guidance, respond with: [ACKNOWLEDGED]
+      Wait for the agent to write to you in agent_assist before writing there.
+      In agent_assist, you may ask the agent what to do next if unclear. If you
+      understand the guidance, send nothing to agent_assist and act on it.
     goal: >
       Help the customer with billing dispute related questions and process the appropriate
       actions based on agent's guidance and policy recommendations.

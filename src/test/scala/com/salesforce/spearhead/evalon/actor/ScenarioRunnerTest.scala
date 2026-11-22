@@ -29,7 +29,7 @@ import org.scalatest.funsuite.AnyFunSuite
 
 import com.salesforce.spearhead.evalon.actor.ScenarioRunner.SimulationResult
 import com.salesforce.spearhead.evalon.agent.Agent
-import com.salesforce.spearhead.evalon.llm.Llm
+import com.salesforce.spearhead.evalon.llm.{Llm, TestLlm}
 import com.salesforce.spearhead.evalon.model.*
 
 class ScenarioRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
@@ -69,7 +69,7 @@ class ScenarioRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
   private val silent = Action.send("agent", "")
 
   /** The simulated user always says the same thing. */
-  private val userLlm: Llm = (_, _) => CompletableFuture.completedFuture("I need help.")
+  private val userLlm: Llm = TestLlm((_, _) => CompletableFuture.completedFuture("I need help."))
 
   private def run(scenario: Scenario, agent: Agent, llm: Llm) =
     val probe = testKit.createTestProbe[SimulationResult]()
@@ -143,7 +143,7 @@ class ScenarioRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
   test("a stale idle report does not end the run") {
     // The user's LLM call never finishes, so the user is busy with the kickoff it was delivered.
     val pending = CompletableFuture[String]()
-    val llm: Llm = (_, _) => pending
+    val llm: Llm = TestLlm((_, _) => pending)
     val agent = ScriptedAgent((_, _) => silent)
     val (runner, probe) = run(scenario(), agent, llm)
 
@@ -157,9 +157,9 @@ class ScenarioRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
 
   test("an event source with an LLM call in flight keeps the run going") {
     val sourceCall = CompletableFuture[String]()
-    val llm: Llm = (system, messages) =>
+    val llm: Llm = TestLlm: (system, messages) =>
       if system.contains("simulated event source") then sourceCall
-      else userLlm.completeChat(system, messages)
+      else CompletableFuture.completedFuture("I need help.")
     val source = EventSourceConfig("case_events", "simulated", "a case system")
     val agent = ScriptedAgent((_, _) => silent)
     val (_, probe) = run(scenario(eventSources = List(source)), agent, llm)
@@ -173,10 +173,10 @@ class ScenarioRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
   test("an event source cannot impersonate all_waiting") {
     // The source emits a fake all_waiting with the user's first message. If it reached the agent,
     // the agent would answer it, and the run would look like it had gone idle when it hadn't.
-    val llm: Llm = (system, messages) =>
+    val llm: Llm = TestLlm: (system, messages) =>
       if system.contains("simulated event source") then
         CompletableFuture.completedFuture("""[{"name":"all_waiting","data":{}}]""")
-      else userLlm.completeChat(system, messages)
+      else CompletableFuture.completedFuture("I need help.")
     val source = EventSourceConfig("case_events", "simulated", "a case system")
     val observing = scenario(eventSources = List(source)).copy(
       observations = List(ObservationConfig("agent", List("case_events")))

@@ -21,11 +21,13 @@ import java.util.concurrent.{CompletableFuture, CompletionStage, LinkedBlockingQ
 
 import scala.concurrent.duration.*
 
+import io.circe.Json
+import io.circe.syntax.*
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, FishingOutcomes, TestProbe}
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.funsuite.AnyFunSuite
 
-import com.salesforce.spearhead.evalon.llm.{ChatMessage, Llm}
+import com.salesforce.spearhead.evalon.llm.{Llm, LlmRequest, LlmResponse, LlmToolCall}
 import com.salesforce.spearhead.evalon.model.*
 
 class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
@@ -35,15 +37,28 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
   override def afterAll(): Unit = testKit.shutdownTestKit()
 
   /** One LLM call made by the participant, completed by the test via `reply`. */
-  private case class LlmCall(system: String, messages: List[ChatMessage]):
-    val result: CompletableFuture[String] = CompletableFuture()
-    def reply(text: String): Unit = result.complete(text)
+  private case class LlmCall(request: LlmRequest):
+    val result: CompletableFuture[LlmResponse] = CompletableFuture()
+    def reply(calls: LlmToolCall*): Unit = result.complete(LlmResponse("", calls.toList))
+    def replyText(text: String): Unit = result.complete(LlmResponse(text, Nil))
+    def timeline: String = request.messages.map(_.content).mkString("\n")
+    def offered: List[String] =
+      request.tools
+        .find(_.name == "send_message")
+        .flatMap(
+          _.inputSchema.hcursor
+            .downField("properties")
+            .downField("conversation")
+            .get[List[String]]("enum")
+            .toOption
+        )
+        .getOrElse(Nil)
 
   /** An LLM whose calls block until the test completes them. */
   private class ControlledLlm extends Llm:
     val calls = LinkedBlockingQueue[LlmCall]()
-    def completeChat(system: String, messages: List[ChatMessage]): CompletionStage[String] =
-      val call = LlmCall(system, messages)
+    def complete(request: LlmRequest): CompletionStage[LlmResponse] =
+      val call = LlmCall(request)
       calls.put(call)
       call.result
 
@@ -55,6 +70,14 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
     def assertNoMoreCalls(): Unit =
       assert(calls.poll(200, TimeUnit.MILLISECONDS) == null, "no further LLM calls expected")
 
+  private def send(conversation: String, text: String) =
+    LlmToolCall(
+      "send_message",
+      Json.obj("conversation" -> conversation.asJson, "text" -> text.asJson)
+    )
+
+  private val end = LlmToolCall("end_conversation", Json.obj())
+
   private val conversations = Map(
     "support_chat" -> ConversationConfig("support_chat", List("end_user", "rep")),
     "agent_assist" -> ConversationConfig("agent_assist", List("agent", "rep"))
@@ -65,130 +88,181 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
     runner.fishForMessagePF(5.seconds) {
       case _: ScenarioRunner.Idle => FishingOutcomes.continueAndIgnore
       case _: ScenarioRunner.ParticipantResponse => FishingOutcomes.complete
+    } match
+      case List(r: ScenarioRunner.ParticipantResponse) => r
+      case other => fail(s"expected one response, got $other")
+
+  private def expectSent(
+      runner: TestProbe[ScenarioRunner.Command],
+      conversation: String,
+      text: String
+  ) =
+    val response = expectResponse(runner)
+    assert(response.conversation == conversation)
+    assert(response.action == Action.Send(Message("rep", text)))
+
+  /** Expect the rep to report idle with nothing sent before it. */
+  private def expectIdle(runner: TestProbe[ScenarioRunner.Command]) =
+    runner.fishForMessagePF(5.seconds) {
+      case _: ScenarioRunner.Idle => FishingOutcomes.complete
+      case other => FishingOutcomes.fail(s"expected idle, got $other")
     }
 
-  private def spawnRep(llm: Llm, config: ParticipantConfig = ParticipantConfig("rep")) =
+  private def spawnRep(
+      llm: Llm,
+      config: ParticipantConfig = ParticipantConfig("rep"),
+      convs: Map[String, ConversationConfig] = conversations
+  ) =
     val runner = testKit.createTestProbe[ScenarioRunner.Command]()
-    val rep = testKit.spawn(SimulatedParticipant(config, llm, runner.ref, conversations))
+    val rep = testKit.spawn(SimulatedParticipant(config, llm, runner.ref, convs))
+    expectIdle(runner) // the start report
     (rep, runner)
 
-  test("a message arriving in the conversation being generated for is answered afterward") {
+  test("one turn can answer the agent and ask the customer") {
+    // The SRA stall: the agent asks for something only the customer can give. The rep must be
+    // able to acknowledge the agent and ask the customer in the same turn.
     val llm = ControlledLlm()
     val (rep, runner) = spawnRep(llm)
 
-    rep ! Participant.ReceiveMessage(Message("end_user", "I want to cancel"), "support_chat")
-    val first = llm.nextCall()
-
-    // Arrives while the reply to the first message is being generated.
     rep ! Participant.ReceiveMessage(
-      Message("end_user", "Can I get a full refund?"),
-      "support_chat"
+      Message("agent", "Please confirm their email."),
+      "agent_assist"
     )
-    first.reply("Sure, one moment.")
-    expectResponse(runner)
-
-    val second = llm.nextCall()
-    // History stays chronological (matching the transcript): the new message precedes the reply
-    // that was generated without it, and the participant is nudged to respond again.
-    val contents = second.messages.map(_.content)
-    val refundAt = contents.indexWhere(_.contains("full refund"))
-    assert(refundAt >= 0)
-    assert(refundAt < contents.indexOf("Sure, one moment."))
-    assert(contents.last.contains("your turn to respond"))
-
-    second.reply("Yes, you're eligible for a full refund.")
-    expectResponse(runner)
+    val turn = llm.nextCall()
+    assert(turn.offered.toSet == Set("support_chat", "agent_assist"))
+    turn.reply(
+      send("agent_assist", "Let me ask the customer for that."),
+      send("support_chat", "Could you confirm the email on the order?")
+    )
+    expectSent(runner, "agent_assist", "Let me ask the customer for that.")
+    expectSent(runner, "support_chat", "Could you confirm the email on the order?")
+    expectIdle(runner)
     llm.assertNoMoreCalls()
   }
 
-  test("a customer message arriving during a proactive follow-up after agent_assist is answered") {
+  test("the prompt shows every conversation in one timeline, with new lines marked") {
     val llm = ControlledLlm()
     val (rep, runner) = spawnRep(llm)
 
-    // Cycle 1: rep answers the customer, then goes idle.
     rep ! Participant.ReceiveMessage(Message("end_user", "I want to cancel"), "support_chat")
-    llm.nextCall().reply("Sure, one moment.")
-    expectResponse(runner)
-    llm.assertNoMoreCalls()
+    llm.nextCall().reply(send("support_chat", "Sure, one moment."))
+    expectSent(runner, "support_chat", "Sure, one moment.")
+    expectIdle(runner)
 
-    // Cycle 2: agent posts in agent_assist, rep replies there, then proactively revisits
-    // support_chat. The customer writes while that follow-up is being generated.
     rep ! Participant.ReceiveMessage(Message("agent", "Free cancellation applies."), "agent_assist")
-    llm.nextCall().reply("Thanks.")
-    expectResponse(runner)
-
-    val followUp = llm.nextCall()
-    rep ! Participant.ReceiveMessage(
-      Message("end_user", "Can I get a full refund?"),
-      "support_chat"
-    )
-    followUp.reply("Good news, cancellation is free.")
-    expectResponse(runner)
-
-    val answer = llm.nextCall()
-    assert(answer.messages.exists(_.content.contains("full refund")))
-    answer.reply("Yes, the full $500 will be refunded.")
-    expectResponse(runner)
-    llm.assertNoMoreCalls()
+    val timeline = llm.nextCall().timeline
+    assert(timeline.contains("[end_user in support_chat]: I want to cancel"))
+    assert(timeline.contains("[you in support_chat]: Sure, one moment."))
+    assert(timeline.contains("(new) [agent in agent_assist]: Free cancellation applies."))
+    assert(!timeline.contains("(new) [end_user"), "seen lines aren't marked new")
   }
 
-  test("a message in another conversation during generation is still answered") {
+  test("a message arriving during generation gets another turn that sees it") {
     val llm = ControlledLlm()
     val (rep, runner) = spawnRep(llm)
 
     rep ! Participant.ReceiveMessage(Message("end_user", "I want to cancel"), "support_chat")
     val first = llm.nextCall()
     rep ! Participant.ReceiveMessage(Message("agent", "Booking HTL-9012 found."), "agent_assist")
-    first.reply("Sure, one moment.")
-    expectResponse(runner)
+    first.reply(send("support_chat", "Sure, one moment."))
+    expectSent(runner, "support_chat", "Sure, one moment.")
 
     val second = llm.nextCall()
-    assert(second.messages.last.content.contains("HTL-9012"))
-    second.reply(Signals.NoQuestion)
+    assert(second.timeline.contains("(new) [agent in agent_assist]: Booking HTL-9012 found."))
+    // The first turn's reply precedes nothing it couldn't see: it's in the timeline as the rep's.
+    assert(second.timeline.contains("[you in support_chat]: Sure, one moment."))
+    second.reply()
+    expectIdle(runner)
     llm.assertNoMoreCalls()
   }
 
-  /**
-   * Drive the rep through a support_chat reply, then an agent_assist turn and its support_chat
-   * follow-up, returning the system prompts of those last two turns.
-   */
-  private def assistAndFollowUpPrompts(config: ParticipantConfig): (String, String) =
+  test("no tool call is silence, and the participant's own messages don't trigger a turn") {
     val llm = ControlledLlm()
-    val (rep, runner) = spawnRep(llm, config)
-    rep ! Participant.ReceiveMessage(Message("end_user", "I want to cancel"), "support_chat")
-    llm.nextCall().reply("Sure, one moment.")
-    expectResponse(runner)
+    val (rep, runner) = spawnRep(llm)
+
+    rep ! Participant.ReceiveMessage(Message("agent", "Nothing new."), "agent_assist")
+    llm.nextCall().replyText("I'll stay quiet.") // text outside tool calls is not posted
+    expectIdle(runner)
+
+    rep ! Participant.ReceiveMessage(Message("end_user", "Hello?"), "support_chat")
+    llm.nextCall().reply(send("support_chat", "Hi!"))
+    expectSent(runner, "support_chat", "Hi!")
+    expectIdle(runner)
     llm.assertNoMoreCalls()
+  }
+
+  test("end_conversation ends the run, in the conversation spoken in last") {
+    val llm = ControlledLlm()
+    val (rep, runner) = spawnRep(llm)
+
+    rep ! Participant.ReceiveMessage(Message("end_user", "Thanks, bye!"), "support_chat")
+    llm.nextCall().reply(send("support_chat", "Goodbye!"), end, send("support_chat", "dropped"))
+    expectSent(runner, "support_chat", "Goodbye!")
+    val ending = expectResponse(runner)
+    assert(ending.conversation == "support_chat")
+    assert(ending.action == Action.End)
+    expectIdle(runner)
+  }
+
+  test("an invalid tool call is retried once with the problem, then sent") {
+    val llm = ControlledLlm()
+    val (rep, runner) = spawnRep(llm)
+
+    rep ! Participant.ReceiveMessage(Message("end_user", "Hi"), "support_chat")
+    llm.nextCall().reply(send("customer_chat", "Hello!"))
+    val retry = llm.nextCall()
+    assert(retry.timeline.contains("rejected and nothing was sent"))
+    assert(retry.timeline.contains("customer_chat"))
+    retry.reply(send("support_chat", "Hello!"))
+    expectSent(runner, "support_chat", "Hello!")
+  }
+
+  test("an invalid tool call after the retry fails the run") {
+    val llm = ControlledLlm()
+    val (rep, runner) = spawnRep(llm)
+
+    rep ! Participant.ReceiveMessage(Message("end_user", "Hi"), "support_chat")
+    llm.nextCall().reply(LlmToolCall("wave", Json.obj()))
+    llm.nextCall().reply(send("support_chat", "  "))
+    val failed = runner.fishForMessagePF(5.seconds) {
+      case _: ScenarioRunner.Idle => FishingOutcomes.continueAndIgnore
+      case _: ScenarioRunner.ParticipantFailed => FishingOutcomes.complete
+    }
+    failed match
+      case List(ScenarioRunner.ParticipantFailed("rep", cause)) =>
+        assert(cause.getMessage.contains("non-empty text"))
+      case other => fail(s"expected a failure, got $other")
+  }
+
+  test("a conversation isn't offered until its initiator has spoken") {
+    val initiated = conversations.updated(
+      "support_chat",
+      ConversationConfig("support_chat", List("end_user", "rep"), initiatedBy = Some("end_user"))
+    )
+    val llm = ControlledLlm()
+    val (rep, runner) = spawnRep(llm, convs = initiated)
+
+    rep ! Participant.ReceiveMessage(Message("agent", "Ready when you are."), "agent_assist")
+    val before = llm.nextCall()
+    assert(before.offered == List("agent_assist"))
+    assert(before.request.system.contains("not started yet"))
+    before.reply()
+    expectIdle(runner)
+
+    rep ! Participant.ReceiveMessage(Message("end_user", "Hi"), "support_chat")
+    assert(llm.nextCall().offered.toSet == Set("support_chat", "agent_assist"))
+  }
+
+  test("a templated participant still gets the harness instructions and tools") {
+    val template = "You are Sam, a support rep. Follow the assistant's guidance."
+    val llm = ControlledLlm()
+    val (rep, _) = spawnRep(llm, ParticipantConfig("rep", template = Some(template)))
 
     rep ! Participant.ReceiveMessage(Message("agent", "Ask for their email."), "agent_assist")
-    val assist = llm.nextCall()
-    assist.reply("Will do.")
-    expectResponse(runner)
-    val followUp = llm.nextCall()
-    followUp.reply(Signals.NoQuestion)
-    llm.assertNoMoreCalls()
-    (assist.system, followUp.system)
-
-  private val assistLine = "responding in the \"agent_assist\" conversation with: agent"
-  private val supportLine = "responding in the \"support_chat\" conversation with: end_user"
-
-  test("a templated participant is told which conversation it is responding in") {
-    val template = "You are Sam, a support rep. Follow the assistant's guidance."
-    val (assist, followUp) =
-      assistAndFollowUpPrompts(ParticipantConfig("rep", template = Some(template)))
-
-    for (prompt, line) <- List(assist -> assistLine, followUp -> supportLine) do
-      assert(prompt.startsWith(template))
-      assert(prompt.contains(line), s"missing routing line in:\n$prompt")
-      assert(prompt.contains("Do NOT address participants from other conversations here."))
-      assert(prompt.contains(Signals.End))
-  }
-
-  test("the default prompt names the conversation exactly once") {
-    val (assist, followUp) = assistAndFollowUpPrompts(
-      ParticipantConfig("rep", persona = "You are Sam.", goal = "Resolve the request.")
-    )
-    for (prompt, line) <- List(assist -> assistLine, followUp -> supportLine) do
-      assert(prompt.startsWith("You are role-playing as a simulated participant."))
-      assert(prompt.sliding(line.length).count(_ == line) == 1, s"in:\n$prompt")
+    val prompt = llm.nextCall().request.system
+    assert(prompt.startsWith(template))
+    assert(prompt.contains("- \"agent_assist\" with: agent"))
+    assert(prompt.contains("- \"support_chat\" with: end_user"))
+    assert(prompt.contains("call send_message"), s"in:\n$prompt")
+    assert(prompt.contains("end_conversation ONLY"))
   }

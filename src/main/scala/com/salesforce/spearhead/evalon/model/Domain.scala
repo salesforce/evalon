@@ -25,7 +25,6 @@ import io.circe.syntax.*
  * use these exact strings.
  */
 object Signals:
-  val NoQuestion = "[NO_QUESTION]"
   val NoAction = "[NO_ACTION]"
   val End = "[END]"
 
