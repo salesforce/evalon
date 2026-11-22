@@ -266,3 +266,45 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(prompt.contains("call send_message"), s"in:\n$prompt")
     assert(prompt.contains("end_conversation ONLY"))
   }
+
+  private val repInitiates = conversations.updated(
+    "support_chat",
+    ConversationConfig("support_chat", List("end_user", "rep"), initiatedBy = Some("rep"))
+  )
+
+  private val kickoff = Message("system", "The conversation is starting. Please begin.")
+
+  test("the kickoff turn offers only the conversation being opened") {
+    val llm = ControlledLlm()
+    val (rep, runner) = spawnRep(llm, convs = repInitiates)
+
+    rep ! Participant.ReceiveMessage(kickoff, "support_chat")
+    val opening = llm.nextCall()
+    assert(opening.offered == List("support_chat"))
+    opening.reply(send("support_chat", "Hi, how can I help?"))
+    expectSent(runner, "support_chat", "Hi, how can I help?")
+    expectIdle(runner)
+
+    // Once opened, later turns offer every conversation again.
+    rep ! Participant.ReceiveMessage(Message("agent", "I'm here to help."), "agent_assist")
+    assert(llm.nextCall().offered.toSet == Set("support_chat", "agent_assist"))
+  }
+
+  test("a message that arrives with the kickoff gets its own turn after the opening") {
+    // With a thinking delay, the agent's message joins the kickoff in one turn. That turn may only
+    // open support_chat, so the agent's message must not be left as seen but unanswered.
+    val llm = ControlledLlm()
+    val fast = ParticipantConfig("rep", responseSpeed = Some(ResponseSpeed.Fast))
+    val (rep, runner) = spawnRep(llm, fast, repInitiates)
+
+    rep ! Participant.ReceiveMessage(kickoff, "support_chat")
+    rep ! Participant.ReceiveMessage(Message("agent", "Ask for the order number."), "agent_assist")
+    val opening = llm.nextCall()
+    assert(opening.offered == List("support_chat"))
+    opening.reply(send("support_chat", "Hi, how can I help?"))
+    expectSent(runner, "support_chat", "Hi, how can I help?")
+
+    val followUp = llm.calls.poll(6, java.util.concurrent.TimeUnit.SECONDS)
+    assert(followUp != null, "expected a turn for the agent's message")
+    assert(followUp.offered.toSet == Set("support_chat", "agent_assist"))
+  }

@@ -56,15 +56,27 @@ object SimulatedParticipant:
       idleReporter: IdleReporter
   )
 
-  /** One line of the timeline. The participant's own lines have its name as `sender`. */
-  private case class Line(conversation: String, sender: String, content: String)
+  /**
+   * One line of the timeline. The participant's own lines have its name as `sender` and are seen
+   * from the start; others' lines are seen once a prompt has shown them.
+   */
+  private case class Line(conversation: String, sender: String, content: String, seen: Boolean)
 
-  /** The timeline, and how much of it the last prompt included. */
-  private case class History(lines: Vector[Line], seen: Int):
+  /** The runner's kickoff message: it opens a conversation for its initiator. */
+  private val KickoffSender = "system"
+
+  private case class History(lines: Vector[Line]):
     def add(line: Line): History = copy(lines = lines :+ line)
-    def markSeen: History = copy(seen = lines.size)
-    def hasUnseenFrom(others: String => Boolean): Boolean =
-      lines.drop(seen).exists(line => others(line.sender))
+    def markSeen(conversations: Set[String]): History =
+      copy(lines = lines.map(l => if conversations(l.conversation) then l.copy(seen = true) else l))
+    def hasUnseen: Boolean = lines.exists(!_.seen)
+
+    /** Conversations whose kickoff the participant hasn't had a turn for yet. */
+    def pendingKickoffs: List[String] =
+      lines
+        .collect { case l if !l.seen && l.sender == KickoffSender => l.conversation }
+        .distinct
+        .toList
 
   /** What one turn asked for, after validating the model's tool calls. */
   private[actor] enum TurnAction:
@@ -102,7 +114,7 @@ object SimulatedParticipant:
       val mine = conversations.values.filter(_.between.contains(config.name)).toList.sortBy(_.name)
       val setup = Setup(config, llm, runner, mine, IdleReporter(config.name, runner))
       setup.idleReporter.reportIdle() // waits for a message before it speaks
-      Behaviors.withTimers(timers => idle(setup, History(Vector.empty, 0), timers))
+      Behaviors.withTimers(timers => idle(setup, History(Vector.empty), timers))
     }
 
   private def thinkingDelay(setup: Setup): FiniteDuration =
@@ -114,7 +126,7 @@ object SimulatedParticipant:
 
   private def received(setup: Setup, history: History, msg: Message, conversation: String) =
     setup.idleReporter.received()
-    history.add(Line(conversation, msg.sender, msg.content))
+    history.add(Line(conversation, msg.sender, msg.content, seen = msg.sender == setup.config.name))
 
   /** Return to idle, telling the runner (for idle detection). */
   private def goIdle(setup: Setup, history: History, timers: TimerScheduler[Cmd]): Behavior[Cmd] =
@@ -212,18 +224,25 @@ object SimulatedParticipant:
       timers: TimerScheduler[Cmd],
       ctx: ActorContext[Cmd]
   ): Behavior[Cmd] =
-    val allowed = allowedConversations(setup, history)
+    // A kickoff turn only opens its conversation(s): offered anything else, the opening line could
+    // go to the wrong one. It shows and marks seen only those conversations, so anything else that
+    // arrived meanwhile is still new and gets the next turn.
+    val opening = history.pendingKickoffs
+    val shown = if opening.nonEmpty then opening.toSet else setup.conversations.map(_.name).toSet
+    val allowed =
+      if opening.nonEmpty then opening else allowedConversations(setup, history)
     if allowed.isEmpty then
       ctx.log.info("{} has no conversation it may post in yet", setup.config.name)
-      goIdle(setup, history.markSeen, timers)
+      goIdle(setup, history.markSeen(shown), timers)
     else
+      val timeline = renderTimeline(setup.config.name, history, shown, opening)
       val request = LlmRequest(
         system = buildSystemPrompt(setup.config, setup.conversations, allowed.toSet),
-        messages = List(ChatMessage.user(renderTimeline(setup.config.name, history))),
+        messages = List(ChatMessage.user(timeline)),
         tools = turnTools(allowed)
       )
       call(setup, request, allowed, attempt = 0, ctx)
-      generating(setup, history.markSeen, timers)
+      generating(setup, history.markSeen(shown), timers)
 
   private def call(
       setup: Setup,
@@ -296,19 +315,19 @@ object SimulatedParticipant:
           conversation,
           Action.Send(Message(name, text))
         )
-        act(setup, history.add(Line(conversation, name, text)), rest, timers, ctx)
+        act(setup, history.add(Line(conversation, name, text, seen = true)), rest, timers, ctx)
 
       case TurnAction.End :: _ =>
         // The runner records [END] in a conversation: the one spoken in last.
         val conversation = history.lines.reverseIterator
-          .collectFirst { case line if line.sender != "system" => line.conversation }
+          .collectFirst { case line if line.sender != KickoffSender => line.conversation }
           .orElse(history.lines.lastOption.map(_.conversation))
           .getOrElse(setup.conversations.head.name)
         setup.runner ! ScenarioRunner.ParticipantResponse(name, conversation, Action.End)
         goIdle(setup, history, timers)
 
       case Nil =>
-        if history.hasUnseenFrom(_ != name) then enterThinking(setup, history, timers, ctx)
+        if history.hasUnseen then enterThinking(setup, history, timers, ctx)
         else goIdle(setup, history, timers)
 
   /** The turn's actions, or why its tool calls are invalid. */
@@ -374,16 +393,30 @@ object SimulatedParticipant:
       )
     )
 
-  /** The timeline as one transcript, lines tagged with sender and conversation. */
-  private def renderTimeline(name: String, history: History): String =
-    val lines = history.lines.zipWithIndex.map { (line, index) =>
-      val who = if line.sender == name then "you" else line.sender
-      val marker = if index >= history.seen && line.sender != name then "(new) " else ""
-      s"$marker[$who in ${line.conversation}]: ${line.content}"
+  /**
+   * The timeline of the `shown` conversations as one transcript, lines tagged with sender and
+   * conversation. On a kickoff turn (`opening` non-empty) the nudge asks to open those.
+   */
+  private def renderTimeline(
+      name: String,
+      history: History,
+      shown: Set[String],
+      opening: List[String]
+  ): String =
+    val lines = history.lines.collect {
+      case line if shown(line.conversation) =>
+        val who = if line.sender == name then "you" else line.sender
+        val marker = if line.seen then "" else "(new) "
+        s"$marker[$who in ${line.conversation}]: ${line.content}"
     }
-    lines.mkString("\n") +
-      s"\n\n[system]: It's your turn. Call $SendMessage for each message you want to send, " +
-      "or call no tool to stay silent."
+    val nudge =
+      if opening.nonEmpty then
+        val names = opening.map(c => s"\"$c\"").mkString(", ")
+        s"[system]: Open $names now: call $SendMessage there with your opening message."
+      else
+        s"[system]: It's your turn. Call $SendMessage for each message you want to send, " +
+          "or call no tool to stay silent."
+    (lines :+ "" :+ nudge).mkString("\n")
 
   private def buildSystemPrompt(
       config: ParticipantConfig,
