@@ -30,7 +30,8 @@ import scala.util.control.NonFatal
  * returns the model's text and tool calls. How a request is shaped on the wire is entirely the
  * implementation's concern. Simulated participants always pass tools and act only through the calls
  * they get back, so an implementation must support tool calls; the judge and event sources pass
- * none and read only the text.
+ * none and read only the text. A reply the model didn't finish (cut off at its token limit) must
+ * fail the stage, not come back as a short reply: a participant would read it as silence.
  */
 @FunctionalInterface
 trait Llm:

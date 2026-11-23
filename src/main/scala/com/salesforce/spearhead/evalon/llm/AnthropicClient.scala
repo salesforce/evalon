@@ -26,6 +26,7 @@ import javax.net.ssl.{SSLContext, TrustManagerFactory}
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.FutureConverters.*
+import scala.util.{Failure, Success, Try}
 
 import io.circe.*
 import io.circe.parser.*
@@ -64,7 +65,7 @@ class AnthropicClient(
       messages = request.messages.map(_.toJson),
       tools = tools
     )
-    createMessage(apiRequest).map(AnthropicClient.toLlmResponse).asJava
+    createMessage(apiRequest).flatMap(r => Future.fromTry(AnthropicClient.toLlmResponse(r))).asJava
 
   private def sendWithRetry(
       requestBody: String,
@@ -101,14 +102,23 @@ class AnthropicClient(
 
 object AnthropicClient:
 
-  /** The response's text blocks joined by newlines, and its tool calls in order. */
-  private[llm] def toLlmResponse(response: CreateMessageResponse): LlmResponse =
-    LlmResponse(
-      text = response.content.collect { case ContentBlock.TextBlock(t) => t }.mkString("\n"),
-      toolCalls = response.content.collect { case ContentBlock.ToolUseBlock(_, name, input) =>
-        LlmToolCall(name, input)
-      }
-    )
+  /**
+   * The response's text blocks joined by newlines, and its tool calls in order. A reply cut off at
+   * max_tokens is a failure, not a short reply: a participant cut off before its tool call would
+   * read as silent, and one cut off after a call would act on part of its turn.
+   */
+  private[llm] def toLlmResponse(response: CreateMessageResponse): Try[LlmResponse] =
+    if response.stopReason == "max_tokens" then
+      Failure(IllegalStateException(s"Reply ${response.id} was cut off at max_tokens"))
+    else
+      Success(
+        LlmResponse(
+          text = response.content.collect { case ContentBlock.TextBlock(t) => t }.mkString("\n"),
+          toolCalls = response.content.collect { case ContentBlock.ToolUseBlock(_, name, input) =>
+            LlmToolCall(name, input)
+          }
+        )
+      )
 
   def create()(using ExecutionContext): AnthropicClient =
     val sslContext = Settings.caCertsPath
