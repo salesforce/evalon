@@ -150,7 +150,7 @@ Evalon retries 429/5xx responses with exponential backoff (3 retries, 1s base). 
 ### Simulation flow
 
 1. ScenarioRunner spawns all participant and event source actors
-2. Conversations with an `initiated_by` participant kick off; that participant receives a start message
+2. Conversations with an `initiated_by` participant kick off: the runner sends that participant a kickoff (a `Kickoff` command, not a message, so no participant can fake one). An evaluated agent sees it as a `system` turn saying the conversation is starting
 3. Participants are self-driven. A simulated participant takes a turn whenever something from another participant is newer than its last prompt. It sees all its conversations in one timeline, tagged `[sender in conversation]` with new lines marked, and acts only through tool calls: `send_message(conversation, text)`, any number of times and to any of its conversations, and `end_conversation()`. No tool call means silence; text outside tool calls is never posted. A conversation with an `initiated_by` is offered to others only once its initiator has spoken. An invalid call (unknown conversation, empty text, unknown tool) is retried once, then fails the run. Messages arriving during generation join the timeline and get another turn afterward
 4. Messages are recorded in the transcript and delivered to direct participants (those in the conversation's `between` list)
 5. Observer notifications deliver new messages as events (`ReceiveEvents`) to observing participants

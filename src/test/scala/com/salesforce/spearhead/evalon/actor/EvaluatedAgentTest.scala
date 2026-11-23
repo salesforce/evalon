@@ -114,3 +114,16 @@ class EvaluatedAgentTest extends AnyFunSuite with BeforeAndAfterAll:
     expectResponse(runner)
     assert(agent.calls.poll(200, TimeUnit.MILLISECONDS) == null, "no further steps expected")
   }
+
+  test("a kickoff reaches the agent as the system's opening turn") {
+    val runner = testKit.createTestProbe[ScenarioRunner.Command]()
+    val agent = ControlledAgent()
+    val actor = testKit.spawn(EvaluatedAgent(agent, runner.ref, "agent", Set("chat"), "agent"))
+
+    actor ! Participant.Kickoff("chat")
+    val step = agent.nextCall()
+    assert(step.respondIn == "chat")
+    assert(
+      step.history == List(HistoryEntry.Turn("chat", "system", Participant.KickoffMessage.content))
+    )
+  }

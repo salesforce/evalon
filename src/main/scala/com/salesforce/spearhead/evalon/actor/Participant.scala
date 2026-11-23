@@ -25,3 +25,12 @@ object Participant:
   sealed trait Command
   case class ReceiveMessage(message: Message, conversation: String) extends Command
   case class ReceiveEvents(events: List[Event]) extends Command
+
+  /**
+   * The runner opening `conversation` for its initiator. A command of its own, not a message, so no
+   * participant's message (even from one named "system") can be taken for a kickoff.
+   */
+  case class Kickoff(conversation: String) extends Command
+
+  /** How a kickoff reads in a history of messages, for participants that keep one. */
+  val KickoffMessage: Message = Message("system", "The conversation is starting. Please begin.")

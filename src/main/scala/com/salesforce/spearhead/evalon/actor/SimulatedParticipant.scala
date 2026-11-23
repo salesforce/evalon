@@ -58,12 +58,16 @@ object SimulatedParticipant:
 
   /**
    * One line of the timeline. The participant's own lines have its name as `sender` and are seen
-   * from the start; others' lines are seen once a prompt has shown them.
+   * from the start; others' lines are seen once a prompt has shown them. A `kickoff` line is the
+   * runner opening the conversation, not anyone's message.
    */
-  private case class Line(conversation: String, sender: String, content: String, seen: Boolean)
-
-  /** The runner's kickoff message: it opens a conversation for its initiator. */
-  private val KickoffSender = "system"
+  private case class Line(
+      conversation: String,
+      sender: String,
+      content: String,
+      seen: Boolean,
+      kickoff: Boolean = false
+  )
 
   private case class History(lines: Vector[Line]):
     def add(line: Line): History = copy(lines = lines :+ line)
@@ -73,7 +77,7 @@ object SimulatedParticipant:
 
     /** The earliest conversation whose kickoff the participant hasn't had a turn for yet. */
     def nextKickoff: Option[String] =
-      lines.collectFirst { case l if !l.seen && l.sender == KickoffSender => l.conversation }
+      lines.collectFirst { case l if !l.seen && l.kickoff => l.conversation }
 
   /** What one turn asked for, after validating the model's tool calls. */
   private[actor] enum TurnAction:
@@ -125,9 +129,19 @@ object SimulatedParticipant:
       case Some(ResponseSpeed.Slow) => (8000 + Random.nextInt(2000)).millis
       case None => 0.millis
 
-  private def received(setup: Setup, history: History, msg: Message, conversation: String) =
+  /** Add a delivery to the timeline: a message, or a kickoff (see [[Line]]). */
+  private def received(setup: Setup, history: History, delivery: Participant.Command) =
     setup.idleReporter.received()
-    history.add(Line(conversation, msg.sender, msg.content, seen = msg.sender == setup.config.name))
+    delivery match
+      case Participant.ReceiveMessage(msg, conversation) =>
+        val own = msg.sender == setup.config.name
+        history.add(Line(conversation, msg.sender, msg.content, seen = own))
+      case Participant.Kickoff(conversation) =>
+        val kickoff = Participant.KickoffMessage
+        history.add(
+          Line(conversation, kickoff.sender, kickoff.content, seen = false, kickoff = true)
+        )
+      case Participant.ReceiveEvents(_) => history
 
   /** Return to idle, telling the runner (for idle detection). */
   private def goIdle(setup: Setup, history: History, timers: TimerScheduler[Cmd]): Behavior[Cmd] =
@@ -140,8 +154,8 @@ object SimulatedParticipant:
       history: History,
       timers: TimerScheduler[Cmd]
   ): Behavior[Cmd] = Behaviors.receive {
-    case (ctx, Participant.ReceiveMessage(msg, conversation)) =>
-      enterThinking(setup, received(setup, history, msg, conversation), timers, ctx)
+    case (ctx, delivery @ (_: Participant.ReceiveMessage | _: Participant.Kickoff)) =>
+      enterThinking(setup, received(setup, history, delivery), timers, ctx)
 
     case (_, Participant.ReceiveEvents(_)) =>
       // Gap: simulated participants currently ignore observed events. Adding event handling
@@ -180,16 +194,11 @@ object SimulatedParticipant:
       history: History,
       timers: TimerScheduler[Cmd]
   ): Behavior[Cmd] = Behaviors.receive {
-    case (ctx, Participant.ReceiveMessage(msg, conversation)) =>
+    case (ctx, delivery @ (_: Participant.ReceiveMessage | _: Participant.Kickoff)) =>
       val delay = thinkingDelay(setup)
-      ctx.log.info(
-        "{} resetting thinking timer (incoming in {}, {}ms)",
-        setup.config.name,
-        conversation,
-        delay.toMillis
-      )
+      ctx.log.info("{} resetting thinking timer ({}ms)", setup.config.name, delay.toMillis)
       timers.startSingleTimer(ThinkingTimerKey, ThinkingComplete, delay)
-      thinking(setup, received(setup, history, msg, conversation), timers)
+      thinking(setup, received(setup, history, delivery), timers)
 
     case (ctx, ThinkingComplete) =>
       ctx.log.info("{} thinking complete, starting turn", setup.config.name)
@@ -259,8 +268,8 @@ object SimulatedParticipant:
       history: History,
       timers: TimerScheduler[Cmd]
   ): Behavior[Cmd] = Behaviors.receive {
-    case (_, Participant.ReceiveMessage(msg, conversation)) =>
-      generating(setup, received(setup, history, msg, conversation), timers)
+    case (_, delivery @ (_: Participant.ReceiveMessage | _: Participant.Kickoff)) =>
+      generating(setup, received(setup, history, delivery), timers)
 
     case (_, Participant.ReceiveEvents(_)) =>
       // Gap: see idle's ReceiveEvents handler.
@@ -321,7 +330,7 @@ object SimulatedParticipant:
       case TurnAction.End :: _ =>
         // The runner records [END] in a conversation: the one spoken in last.
         val conversation = history.lines.reverseIterator
-          .collectFirst { case line if line.sender != KickoffSender => line.conversation }
+          .collectFirst { case line if !line.kickoff => line.conversation }
           .orElse(history.lines.lastOption.map(_.conversation))
           .getOrElse(setup.conversations.head.name)
         setup.runner ! ScenarioRunner.ParticipantResponse(name, conversation, Action.End)

@@ -272,13 +272,11 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
     ConversationConfig("support_chat", List("end_user", "rep"), initiatedBy = Some("rep"))
   )
 
-  private val kickoff = Message("system", "The conversation is starting. Please begin.")
-
   test("the kickoff turn offers only the conversation being opened") {
     val llm = ControlledLlm()
     val (rep, runner) = spawnRep(llm, convs = repInitiates)
 
-    rep ! Participant.ReceiveMessage(kickoff, "support_chat")
+    rep ! Participant.Kickoff("support_chat")
     val opening = llm.nextCall()
     assert(opening.offered == List("support_chat"))
     opening.reply(send("support_chat", "Hi, how can I help?"))
@@ -297,7 +295,7 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
     val fast = ParticipantConfig("rep", responseSpeed = Some(ResponseSpeed.Fast))
     val (rep, runner) = spawnRep(llm, fast, repInitiates)
 
-    rep ! Participant.ReceiveMessage(kickoff, "support_chat")
+    rep ! Participant.Kickoff("support_chat")
     rep ! Participant.ReceiveMessage(Message("agent", "Ask for the order number."), "agent_assist")
     val opening = llm.nextCall()
     assert(opening.offered == List("support_chat"))
@@ -367,8 +365,8 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
     val fast = ParticipantConfig("rep", responseSpeed = Some(ResponseSpeed.Fast))
     val (rep, runner) = spawnRep(llm, fast, bothInitiated)
 
-    rep ! Participant.ReceiveMessage(kickoff, "support_chat")
-    rep ! Participant.ReceiveMessage(kickoff, "agent_assist")
+    rep ! Participant.Kickoff("support_chat")
+    rep ! Participant.Kickoff("agent_assist")
 
     val first = llm.nextCall()
     assert(first.offered.size == 1)
@@ -392,8 +390,25 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
     val llm = ControlledLlm()
     val (rep, runner) = spawnRep(llm, convs = repInitiates)
 
-    rep ! Participant.ReceiveMessage(kickoff, "support_chat")
+    rep ! Participant.Kickoff("support_chat")
     llm.nextCall().reply()
     expectIdle(runner)
     llm.assertNoMoreCalls()
+  }
+
+  test("a message from a participant named system is not a kickoff") {
+    val withSystem = conversations.updated(
+      "agent_assist",
+      ConversationConfig("agent_assist", List("system", "rep"))
+    )
+    val llm = ControlledLlm()
+    val (rep, _) = spawnRep(llm, convs = withSystem)
+
+    rep ! Participant.ReceiveMessage(
+      Message("system", "Ticket 42 is assigned to you."),
+      "agent_assist"
+    )
+    val turn = llm.nextCall()
+    assert(turn.offered.toSet == Set("support_chat", "agent_assist"))
+    assert(!turn.timeline.contains("Open \""))
   }

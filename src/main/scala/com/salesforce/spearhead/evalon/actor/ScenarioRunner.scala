@@ -193,10 +193,7 @@ object ScenarioRunner:
           s,
           initiator,
           ref,
-          Participant.ReceiveMessage(
-            Message("system", "The conversation is starting. Please begin."),
-            conv
-          )
+          Participant.Kickoff(conv)
         )
       }
 

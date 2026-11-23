@@ -25,7 +25,7 @@ import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
 import com.salesforce.spearhead.evalon.agent.Agent
-import com.salesforce.spearhead.evalon.model.{Action, Event, HistoryEntry}
+import com.salesforce.spearhead.evalon.model.{Action, Event, HistoryEntry, Message}
 
 /**
  * Wraps the Agent trait as a Pekko actor, bridging actor messages to Future-based calls.
@@ -51,6 +51,13 @@ object EvaluatedAgent:
    */
   private case class Pending(conversations: Set[String], events: List[Event])
 
+  private type Delivery = Participant.ReceiveMessage | Participant.Kickoff
+
+  /** A delivered message and its conversation, with a kickoff read as the system's opening turn. */
+  private def delivered(delivery: Delivery): (Message, String) = delivery match
+    case Participant.ReceiveMessage(msg, conversation) => (msg, conversation)
+    case Participant.Kickoff(conversation) => (Participant.KickoffMessage, conversation)
+
   def apply(
       agent: Agent,
       runner: ActorRef[ScenarioRunner.Command],
@@ -74,8 +81,9 @@ object EvaluatedAgent:
       history: List[HistoryEntry]
   )(using reporter: IdleReporter): Behavior[Participant.Command | AgentResult] = Behaviors.receive {
     // Every delivery while idle starts a step, so idle is reported when that step finishes.
-    case (ctx, Participant.ReceiveMessage(msg, conversation)) =>
+    case (ctx, delivery: Delivery) =>
       reporter.received()
+      val (msg, conversation) = delivered(delivery)
       val newHistory =
         history :+ HistoryEntry.Turn(conversation, msg.sender, msg.content, msg.trace)
       startStep(
@@ -153,8 +161,9 @@ object EvaluatedAgent:
       history: List[HistoryEntry],
       pending: Pending
   )(using reporter: IdleReporter): Behavior[Participant.Command | AgentResult] = Behaviors.receive {
-    case (_, Participant.ReceiveMessage(msg, conversation)) =>
+    case (_, delivery: Delivery) =>
       reporter.received()
+      val (msg, conversation) = delivered(delivery)
       val newHistory =
         history :+ HistoryEntry.Turn(conversation, msg.sender, msg.content, msg.trace)
       val newPending = pending.copy(conversations = pending.conversations + conversation)
