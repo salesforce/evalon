@@ -104,11 +104,15 @@ object SimulatedParticipant:
   /** Retries of a turn whose tool calls were invalid, before the run fails. */
   private val MaxRetries = 1
 
+  /**
+   * `conversations` is the scenario's conversations by name; the participant keeps those it is in.
+   * It is required: a participant with none has nowhere to post and would stay silent forever.
+   */
   def apply(
       config: ParticipantConfig,
       llm: Llm,
       runner: ActorRef[ScenarioRunner.Command],
-      conversations: Map[String, ConversationConfig] = Map.empty
+      conversations: Map[String, ConversationConfig]
   ): Behavior[Cmd] =
     Behaviors.setup { _ =>
       val mine = conversations.values.filter(_.between.contains(config.name)).toList.sortBy(_.name)

@@ -320,3 +320,11 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(expectResponse(runner).action == Action.End)
     llm.assertNoMoreCalls()
   }
+
+  test("the factory requires the conversations") {
+    // Without them the participant could never post: it would be silent for the whole run.
+    assertDoesNotCompile(
+      "SimulatedParticipant(ParticipantConfig(\"rep\"), ControlledLlm(), " +
+        "testKit.createTestProbe[ScenarioRunner.Command]().ref)"
+    )
+  }
