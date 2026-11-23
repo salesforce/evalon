@@ -776,12 +776,16 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
       """[""]""",
       """[{name: ok, description: "  "}]""",
       """[{name: ok, description: ok}, {name: tone}]""",
-      // Unicode whitespace that String.trim keeps (no-break, ideographic, em space), and
-      // invisible format characters (zero-width space, byte order mark), as YAML escapes.
+      // Unicode whitespace that String.trim keeps (no-break, ideographic, em space), invisible
+      // format characters (zero-width space, byte order mark), and ISO control characters (NUL,
+      // next line, delete), as YAML escapes.
       """[{name: ok, description: "\u00A0"}]""",
       """[{name: ok, description: "\u3000"}]""",
       """[{name: ok, description: "\u2003\u00A0"}]""",
-      """[{name: ok, description: "\u200B\uFEFF"}]"""
+      """[{name: ok, description: "\u200B\uFEFF"}]""",
+      """[{name: ok, description: "\u0000"}]""",
+      """[{name: ok, description: "\u0085"}]""",
+      """[{name: ok, description: "\u007F\u0000 \u0085"}]"""
     )
     criteria.foreach { yaml =>
       val result = loadYaml(s"""
