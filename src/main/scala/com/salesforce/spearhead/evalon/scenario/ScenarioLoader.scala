@@ -143,8 +143,8 @@ object ScenarioLoader:
       // The description is what the judge applies; an empty one (`[{}]`, `[""]`) still counts
       // toward the list, so check each. Numbered from 1, since a blank criterion may have no name.
       val blank = scenario.evalCriteria.zipWithIndex.collect {
-        case (c, i) if Option(c.description).forall(_.trim.isEmpty) =>
-          val name = Option(c.name).map(_.trim).filter(_.nonEmpty).fold("")(n => s" ($n)")
+        case (c, i) if EvalCriterion.isBlank(c.description) =>
+          val name = if EvalCriterion.isBlank(c.name) then "" else s" (${c.name.trim})"
           s"criterion ${i + 1}$name"
       }
       if blank.nonEmpty then

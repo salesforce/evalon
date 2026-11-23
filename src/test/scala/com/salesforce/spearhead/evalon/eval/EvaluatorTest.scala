@@ -356,7 +356,7 @@ class EvaluatorTest extends AnyFunSuite:
   }
 
   test("rubric with a blank description fails with an explicit reason") {
-    List("", "  ", null).foreach { description =>
+    List("", "  ", "\u00a0\u3000", "\u200b", null).foreach { description =>
       val criterion = rubricCriterion().copy(description = description)
       val (r, _) = judgeOnce(criterion, """{"score":1.0,"reasoning":"ok"}""")
       assert(!r.passed, s"[$description]")
