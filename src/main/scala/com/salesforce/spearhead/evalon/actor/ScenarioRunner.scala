@@ -97,7 +97,7 @@ object ScenarioRunner:
       participants: Map[String, ActorRef[Participant.Command]],
       eventSources: Map[String, ActorRef[EventSourceActor.Command]],
       directConversations: Map[String, Set[String]],
-      observationsOf: Map[String, List[ObservationConfig]],
+      observersOf: Map[String, List[String]],
       conversations: Map[String, ConversationConfig],
       agentName: String,
       messageCounts: Map[String, Int],
@@ -170,12 +170,15 @@ object ScenarioRunner:
         name -> scenario.conversations.filter(_.between.contains(name)).map(_.name).toSet
       }
 
-      // Build observation lookup: observed target name (conversation or event source) -> observers
-      val observationsOf: Map[String, List[ObservationConfig]] =
+      // Observed target (conversation or event source) -> its observers, each once: a target
+      // repeated in `observes`, or split across observations, must not deliver a message twice.
+      // A member of a conversation already receives its messages, so observing it adds nothing.
+      val members = scenario.conversations.map(c => c.name -> c.between.toSet).toMap
+      val observersOf: Map[String, List[String]] =
         scenario.observations
-          .flatMap { obs =>
-            obs.observes.map(convName => convName -> obs)
-          }
+          .flatMap(obs => obs.observes.map(_ -> obs.participant))
+          .distinct
+          .filterNot((target, observer) => members.get(target).exists(_(observer)))
           .groupMap(_._1)(_._2)
 
       val state = RunState(
@@ -184,7 +187,7 @@ object ScenarioRunner:
         participants = participants,
         eventSources = eventSources,
         directConversations = directConversations,
-        observationsOf = observationsOf,
+        observersOf = observersOf,
         conversations = conversations,
         agentName = agentName,
         messageCounts = Map.empty,
@@ -263,10 +266,9 @@ object ScenarioRunner:
           appendEntry(s, TranscriptEntry(event = Some(event)))
         }
         val observers = for
-          obs <- recorded.scenario.observations
-          if obs.observes.contains(sourceName)
-          ref <- recorded.participants.get(obs.participant)
-        yield obs.participant -> ref
+          name <- recorded.observersOf.getOrElse(sourceName, Nil)
+          ref <- recorded.participants.get(name)
+        yield name -> ref
         running(observers.foldLeft(recorded) { case (s, (name, ref)) =>
           deliver(s, name, ref, Participant.ReceiveEvents(events))
         })
@@ -381,10 +383,10 @@ object ScenarioRunner:
         )
       )
       val observers = for
-        obs <- stateAfterDirect.observationsOf.getOrElse(conversation, Nil)
-        if msg.sender != obs.participant
-        ref <- stateAfterDirect.participants.get(obs.participant)
-      yield obs.participant -> ref
+        name <- stateAfterDirect.observersOf.getOrElse(conversation, Nil)
+        if msg.sender != name
+        ref <- stateAfterDirect.participants.get(name)
+      yield name -> ref
       val stateAfterObservers = observers.foldLeft(stateAfterDirect) { case (s, (name, ref)) =>
         deliver(s, name, ref, Participant.ReceiveEvents(events))
       }
