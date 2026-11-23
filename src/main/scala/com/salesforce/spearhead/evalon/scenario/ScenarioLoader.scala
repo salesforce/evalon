@@ -105,11 +105,11 @@ object ScenarioLoader:
     // The runner routes by conversation name: a message is delivered to every participant in a
     // conversation of that name. Two conversations with one name merge, so a message reaches
     // participants of the other conversation too. A missing name decodes as "", which collides the
-    // same way. An event source with a conversation's name makes the name ambiguous as an
+    // same way, and a name that shows nothing (see [[Text.isBlank]]) is no name either. An event source with a conversation's name makes the name ambiguous as an
     // observation target.
     val names = scenario.conversations.map(_.name)
-    val unnamed = names.count(n => n == null || n.trim.isEmpty)
-    val repeated = names.filter(n => n != null && n.trim.nonEmpty).groupBy(identity).collect {
+    val unnamed = names.count(Text.isBlank)
+    val repeated = names.filterNot(Text.isBlank).groupBy(identity).collect {
       case (name, uses) if uses.size > 1 => name
     }
     val sharedWithSources = names.toSet.intersect(scenario.eventSources.map(_.name).toSet)
@@ -198,8 +198,8 @@ object ScenarioLoader:
       // The description is what the judge applies; an empty one (`[{}]`, `[""]`) still counts
       // toward the list, so check each. Numbered from 1, since a blank criterion may have no name.
       val blank = scenario.evalCriteria.zipWithIndex.collect {
-        case (c, i) if EvalCriterion.isBlank(c.description) =>
-          val name = if EvalCriterion.isBlank(c.name) then "" else s" (${c.name.trim})"
+        case (c, i) if Text.isBlank(c.description) =>
+          val name = if Text.isBlank(c.name) then "" else s" (${c.name.trim})"
           s"criterion ${i + 1}$name"
       }
       if blank.nonEmpty then

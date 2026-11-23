@@ -701,20 +701,33 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
   }
 
   test("a conversation with no name is rejected at load") {
-    // A missing name decodes as "", so two unnamed conversations would also share a name.
-    val result = loadYaml("""
-      |name: unnamed-conversation
-      |description: the conversation has no name
-      |participants:
-      |  end_user:
-      |    type: simulated
-      |  agent:
-      |    type: evaluated
-      |conversations:
-      |  - between: [end_user, agent]
-      |    initiated_by: end_user
-      |""" + criteriaYaml)
-    assert(result.left.exists(_.contains("no name")), result)
+    // A missing name decodes as "", so two unnamed conversations would also share a name. A name
+    // that shows nothing is no name either: whitespace, Unicode spaces that String.trim keeps,
+    // invisible format characters, and control characters, as YAML escapes.
+    val names = List(
+      "",
+      """ name: "   """",
+      """ name: "\u00A0"""",
+      """ name: "\u3000\u2003"""",
+      """ name: "\u200B\uFEFF"""",
+      """ name: "\u0000\u0085""""
+    )
+    names.foreach { name =>
+      val result = loadYaml(s"""
+        |name: unnamed-conversation
+        |description: the conversation has no name
+        |participants:
+        |  end_user:
+        |    type: simulated
+        |  agent:
+        |    type: evaluated
+        |conversations:
+        |  -$name
+        |    between: [end_user, agent]
+        |    initiated_by: end_user
+        |""" + criteriaYaml)
+      assert(result.left.exists(_.contains("no name")), (name, result))
+    }
   }
 
   test("a misspelt observation is rejected at load") {
