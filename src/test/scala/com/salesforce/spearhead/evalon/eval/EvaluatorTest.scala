@@ -217,6 +217,29 @@ class EvaluatorTest extends AnyFunSuite:
     assert(result.criterionResults.head.score == 0.4)
   }
 
+  test("scored criterion without passThreshold passes on a perfect score") {
+    val llm: Llm = (_, _) =>
+      CompletableFuture.completedFuture("""{"score": 1.0, "reasoning": "perfect"}""")
+    val scenario = Scenario(
+      name = "no-threshold",
+      description = "d",
+      participants = Map.empty,
+      conversations = Nil,
+      evalCriteria = List(
+        EvalCriterion(
+          name = "quality",
+          description = "quality",
+          criterionType = CriterionType.Scored,
+          requireToolCall = false,
+        )
+      )
+    )
+    val result = Await.result(Evaluator(llm).evaluate(scenario, Transcript()), 5.seconds)
+    assert(result.criterionResults.head.passed)
+    assert(result.criterionResults.head.score == 1.0)
+    assert(result.overallPassed)
+  }
+
   private val rubricLadder =
     """How clearly did the agent explain the refund policy?
       |Levels (pick exactly one):
