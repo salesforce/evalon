@@ -73,7 +73,7 @@ class EvaluatedAgentTest extends AnyFunSuite with BeforeAndAfterAll:
   test("an observed message arriving mid-step triggers another step") {
     val runner = testKit.createTestProbe[ScenarioRunner.Command]()
     val agent = ControlledAgent()
-    val actor = testKit.spawn(EvaluatedAgent(agent, runner.ref, "agent", Set("assist"), "agent"))
+    val actor = testKit.spawn(EvaluatedAgent(agent, runner.ref, "agent", "assist"))
 
     actor ! Participant.ReceiveEvents(List(observed("chat", "end_user", "I want to cancel")))
     val first = agent.nextCall()
@@ -98,7 +98,7 @@ class EvaluatedAgentTest extends AnyFunSuite with BeforeAndAfterAll:
   test("several observed messages mid-step coalesce into a single follow-up step") {
     val runner = testKit.createTestProbe[ScenarioRunner.Command]()
     val agent = ControlledAgent()
-    val actor = testKit.spawn(EvaluatedAgent(agent, runner.ref, "agent", Set("assist"), "agent"))
+    val actor = testKit.spawn(EvaluatedAgent(agent, runner.ref, "agent", "assist"))
 
     actor ! Participant.ReceiveEvents(List(observed("chat", "end_user", "hi")))
     val first = agent.nextCall()
@@ -118,7 +118,7 @@ class EvaluatedAgentTest extends AnyFunSuite with BeforeAndAfterAll:
   test("a kickoff reaches the agent as the system's opening turn") {
     val runner = testKit.createTestProbe[ScenarioRunner.Command]()
     val agent = ControlledAgent()
-    val actor = testKit.spawn(EvaluatedAgent(agent, runner.ref, "agent", Set("chat"), "agent"))
+    val actor = testKit.spawn(EvaluatedAgent(agent, runner.ref, "agent", "chat"))
 
     actor ! Participant.Kickoff("chat")
     val step = agent.nextCall()

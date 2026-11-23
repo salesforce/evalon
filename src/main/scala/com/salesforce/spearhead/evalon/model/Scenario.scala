@@ -71,6 +71,21 @@ case class EvalCriterion(
     weight: Double = 1.0
 )
 
+object Text:
+
+  /**
+   * Whether `text` is null or shows nothing: only whitespace, including the no-break and
+   * ideographic spaces that `String.trim` and `String.isBlank` keep, invisible format characters
+   * such as the zero-width space, and ISO control characters such as NUL and next line (U+0085). A
+   * criterion description like that gives the judge nothing to check the transcript against, and a
+   * conversation name like that is no name.
+   */
+  def isBlank(text: String): Boolean =
+    text == null || text.codePoints.allMatch(c =>
+      Character.isWhitespace(c) || Character.isSpaceChar(c) || Character.isISOControl(c) ||
+        Character.getType(c) == Character.FORMAT
+    )
+
 case class Scenario(
     name: String,
     description: String,

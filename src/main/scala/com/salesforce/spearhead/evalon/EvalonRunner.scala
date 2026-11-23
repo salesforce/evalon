@@ -31,7 +31,7 @@ import com.salesforce.spearhead.evalon.actor.ScenarioRunner
 import com.salesforce.spearhead.evalon.agent.{Agent, SimpleAgent}
 import com.salesforce.spearhead.evalon.eval.Evaluator
 import com.salesforce.spearhead.evalon.llm.Llm
-import com.salesforce.spearhead.evalon.model.{ParticipantType, Scenario}
+import com.salesforce.spearhead.evalon.model.Scenario
 import com.salesforce.spearhead.evalon.scenario.ScenarioLoader
 
 /**
@@ -51,7 +51,7 @@ final class EvalonRunner(system: ActorSystem[SpawnProtocol.Command]):
       llm: Llm,
       options: EvalonRunOptions
   ): EvalonResult =
-    val agentName = EvalonRunner.evaluatedName(scenario)
+    val agentName = EvalonRunner.evaluated(scenario).name
     val agentImpl = SimpleAgent.toAgent(agent, agentName)(using options.executionContext)
     run(scenario, agentImpl, llm, options)
 
@@ -59,6 +59,7 @@ final class EvalonRunner(system: ActorSystem[SpawnProtocol.Command]):
     ScenarioLoader.validateScenario(scenario).left.foreach { e =>
       throw IllegalArgumentException(s"Invalid scenario: $e")
     }
+    val agentName = EvalonRunner.evaluated(scenario).name
     val ec = options.executionContext
     val timeout = Timeout(options.getSimulationTimeout.toScala)
     val runName = s"run-${runSeq.incrementAndGet()}"
@@ -88,8 +89,7 @@ final class EvalonRunner(system: ActorSystem[SpawnProtocol.Command]):
     val (transcript, stopReason) = simulation match
       case ScenarioRunner.SimulationResult.Completed(t, reason) => (t, reason)
       case ScenarioRunner.SimulationResult.Failed(t, cause, participant) =>
-        if participant == EvalonRunner.evaluatedName(scenario) then
-          throw AgentStepFailedException(cause, t)
+        if participant == agentName then throw AgentStepFailedException(cause, t)
         else throw SimulationFailedException(participant, cause, t)
     val evalResult = Await.result(
       Evaluator(llm)(using ec).evaluate(scenario, transcript),
@@ -113,8 +113,7 @@ object EvalonRunner:
       case Right(s) => s
       case Left(e) => throw RuntimeException(s"Failed to load scenario: $e")
 
-  private def evaluatedName(scenario: Scenario): String =
-    scenario.participants
-      .find(_._2.participantType == ParticipantType.Evaluated)
-      .map(_._1)
-      .getOrElse("agent")
+  private def evaluated(scenario: Scenario): ScenarioLoader.Evaluated =
+    ScenarioLoader
+      .evaluated(scenario)
+      .fold(e => throw IllegalArgumentException(s"Invalid scenario: $e"), identity)

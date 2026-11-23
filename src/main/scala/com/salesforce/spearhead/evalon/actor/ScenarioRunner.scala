@@ -97,7 +97,7 @@ object ScenarioRunner:
       participants: Map[String, ActorRef[Participant.Command]],
       eventSources: Map[String, ActorRef[EventSourceActor.Command]],
       directConversations: Map[String, Set[String]],
-      observationsOf: Map[String, List[ObservationConfig]],
+      observersOf: Map[String, List[String]],
       conversations: Map[String, ConversationConfig],
       agentName: String,
       messageCounts: Map[String, Int],
@@ -111,10 +111,11 @@ object ScenarioRunner:
   )
 
   /**
-   * Throws IllegalArgumentException for a scenario that fails [[ScenarioLoader.validateScenario]].
-   * Checked here, not only in EvalonRunner, because direct callers skip EvalonRunner; and when the
-   * behavior is built, not when it starts, so a caller isn't left waiting on a runner that never
-   * replies.
+   * Throws IllegalArgumentException for a scenario that fails
+   * [[ScenarioLoader.validateSimulation]]. Checked here, not only in EvalonRunner, because direct
+   * callers skip EvalonRunner; and when the behavior is built, not when it starts, so a caller
+   * isn't left waiting on a runner that never replies. Eval criteria aren't required: the runner
+   * only simulates.
    */
   def apply(
       scenario: Scenario,
@@ -122,29 +123,20 @@ object ScenarioRunner:
       llm: Llm,
       onEntry: Option[TranscriptEntry => Unit] = None
   ): Behavior[Command] =
-    ScenarioLoader.validateScenario(scenario).left.foreach { e =>
-      throw IllegalArgumentException(s"Invalid scenario: $e")
-    }
-    run(scenario, agent, llm, onEntry)
+    val evaluated = ScenarioLoader
+      .validateSimulation(scenario)
+      .fold(e => throw IllegalArgumentException(s"Invalid scenario: $e"), identity)
+    run(scenario, evaluated, agent, llm, onEntry)
 
   private def run(
       scenario: Scenario,
+      evaluated: ScenarioLoader.Evaluated,
       agent: Agent,
       llm: Llm,
       onEntry: Option[TranscriptEntry => Unit]
   ): Behavior[Command] = Behaviors.receive {
     case (ctx, Run(replyTo)) =>
-      // Identify the evaluated participant
-      val agentName = scenario.participants
-        .find(_._2.participantType == ParticipantType.Evaluated)
-        .map(_._1)
-        .getOrElse("agent")
-
-      // Compute the agent's direct conversations
-      val agentDirectConversations = scenario.conversations
-        .filter(_.between.contains(agentName))
-        .map(_.name)
-        .toSet
+      val agentName = evaluated.name
 
       // Conversation lookup
       val conversations = scenario.conversations.map(c => c.name -> c).toMap
@@ -153,7 +145,7 @@ object ScenarioRunner:
       val participants: Map[String, ActorRef[Participant.Command]] = scenario.participants.map {
         case (name, config) if config.participantType == ParticipantType.Evaluated =>
           name -> ctx.spawn(
-            EvaluatedAgent(agent, ctx.self, agentName, agentDirectConversations, name),
+            EvaluatedAgent(agent, ctx.self, name, evaluated.conversation),
             s"participant-$name"
           )
         case (name, config) =>
@@ -178,12 +170,15 @@ object ScenarioRunner:
         name -> scenario.conversations.filter(_.between.contains(name)).map(_.name).toSet
       }
 
-      // Build observation lookup: observed target name (conversation or event source) -> observers
-      val observationsOf: Map[String, List[ObservationConfig]] =
+      // Observed target (conversation or event source) -> its observers, each once: a target
+      // repeated in `observes`, or split across observations, must not deliver a message twice.
+      // A member of a conversation already receives its messages, so observing it adds nothing.
+      val members = scenario.conversations.map(c => c.name -> c.between.toSet).toMap
+      val observersOf: Map[String, List[String]] =
         scenario.observations
-          .flatMap { obs =>
-            obs.observes.map(convName => convName -> obs)
-          }
+          .flatMap(obs => obs.observes.map(_ -> obs.participant))
+          .distinct
+          .filterNot((target, observer) => members.get(target).exists(_(observer)))
           .groupMap(_._1)(_._2)
 
       val state = RunState(
@@ -192,7 +187,7 @@ object ScenarioRunner:
         participants = participants,
         eventSources = eventSources,
         directConversations = directConversations,
-        observationsOf = observationsOf,
+        observersOf = observersOf,
         conversations = conversations,
         agentName = agentName,
         messageCounts = Map.empty,
@@ -271,10 +266,9 @@ object ScenarioRunner:
           appendEntry(s, TranscriptEntry(event = Some(event)))
         }
         val observers = for
-          obs <- recorded.scenario.observations
-          if obs.observes.contains(sourceName)
-          ref <- recorded.participants.get(obs.participant)
-        yield obs.participant -> ref
+          name <- recorded.observersOf.getOrElse(sourceName, Nil)
+          ref <- recorded.participants.get(name)
+        yield name -> ref
         running(observers.foldLeft(recorded) { case (s, (name, ref)) =>
           deliver(s, name, ref, Participant.ReceiveEvents(events))
         })
@@ -306,10 +300,7 @@ object ScenarioRunner:
     if !allIdle(names, state.delivered, state.reported) then running(state)
     else
       state.participants.get(state.agentName) match
-        // An agent with no conversation of its own has nowhere to answer the event.
-        case Some(agent)
-            if !state.idleNotified
-              && state.directConversations.getOrElse(state.agentName, Set.empty).nonEmpty =>
+        case Some(agent) if !state.idleNotified =>
           // A harness signal, not part of the scenario, so it stays out of the transcript.
           ctx.log.info("Run is idle; sending {} all_waiting", state.agentName)
           val notified = state.copy(idleNotified = true)
@@ -392,10 +383,10 @@ object ScenarioRunner:
         )
       )
       val observers = for
-        obs <- stateAfterDirect.observationsOf.getOrElse(conversation, Nil)
-        if msg.sender != obs.participant
-        ref <- stateAfterDirect.participants.get(obs.participant)
-      yield obs.participant -> ref
+        name <- stateAfterDirect.observersOf.getOrElse(conversation, Nil)
+        if msg.sender != name
+        ref <- stateAfterDirect.participants.get(name)
+      yield name -> ref
       val stateAfterObservers = observers.foldLeft(stateAfterDirect) { case (s, (name, ref)) =>
         deliver(s, name, ref, Participant.ReceiveEvents(events))
       }

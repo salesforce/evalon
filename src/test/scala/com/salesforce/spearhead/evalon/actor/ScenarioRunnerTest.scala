@@ -59,9 +59,11 @@ class ScenarioRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
   /** Records the events of every step and answers with `reply(stepIndex, events)`. */
   private class ScriptedAgent(reply: (Int, List[Event]) => Action) extends Agent:
     val steps = LinkedBlockingQueue[List[Event]]()
+    @volatile var lastHistory: List[HistoryEntry] = Nil
     private val count = AtomicInteger()
     def step(history: List[HistoryEntry], events: List[Event], respondIn: String): Future[Action] =
       steps.put(events)
+      lastHistory = history
       Future.successful(reply(count.getAndIncrement(), events))
     def allWaitingSeen: Int =
       steps.toArray.toList.map(_.asInstanceOf[List[Event]]).count(_.exists(_.name == "all_waiting"))
@@ -133,11 +135,28 @@ class ScenarioRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(agent.allWaitingSeen == 1)
   }
 
-  test("a scenario with no participants or event sources completes as idle at once") {
-    // Nobody exists to send an idle report, so the runner must check at startup.
+  test("a runner for a scenario with no evaluated participant is rejected when built") {
     val empty = scenario().copy(participants = Map.empty, conversations = Nil)
-    val (_, probe) = run(empty, ScriptedAgent((_, _) => silent), userLlm)
-    assert(expectCompleted(probe)._2 == StopReason.Idle)
+    val ex = intercept[IllegalArgumentException] {
+      ScenarioRunner(empty, ScriptedAgent((_, _) => silent), userLlm)
+    }
+    assert(ex.getMessage.contains("no evaluated participant"))
+  }
+
+  test("a runner for a conversation whose initiator is outside it is rejected when built") {
+    val base = scenario()
+    val outside = base.copy(
+      participants = base.participants.updated(
+        "helper",
+        ParticipantConfig("helper", ParticipantType.Simulated)
+      ),
+      conversations = base.conversations :+
+        ConversationConfig("side", List("end_user", "helper"), initiatedBy = Some("agent"))
+    )
+    val ex = intercept[IllegalArgumentException] {
+      ScenarioRunner(outside, ScriptedAgent((_, _) => silent), userLlm)
+    }
+    assert(ex.getMessage.contains("side is initiated by agent"))
   }
 
   test("a stale idle report does not end the run") {
@@ -188,6 +207,65 @@ class ScenarioRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(reason == StopReason.Idle)
     assert(agent.allWaitingSeen == 1, "only the runner's own all_waiting reaches the agent")
     assert(!transcript.entries.exists(_.event.exists(_.name == Event.AllWaiting)))
+  }
+
+  test("a runner for two conversations with the same name is rejected when built") {
+    // Routing is by name, so the two "chat"s would merge: the customer's message to the agent
+    // would also reach the supervisor and the helper, who share no conversation with the customer.
+    val base = scenario()
+    val duplicate = base.copy(
+      participants = base.participants ++ List("supervisor", "helper").map(n =>
+        n -> ParticipantConfig(n, ParticipantType.Simulated)
+      ),
+      conversations = List(
+        ConversationConfig("chat", List("end_user", "agent"), initiatedBy = Some("end_user")),
+        ConversationConfig("chat", List("supervisor", "helper"))
+      )
+    )
+    val ex = intercept[IllegalArgumentException] {
+      ScenarioRunner(duplicate, ScriptedAgent((_, _) => silent), userLlm)
+    }
+    assert(ex.getMessage.contains("chat"))
+    assert(ex.getMessage.contains("more than once"))
+  }
+
+  test("an observed message reaches each observer once, however the observation is written") {
+    // The agent observes the customer's chat with a representative. Repeating the target,
+    // splitting it across two observations, or also observing the agent's own conversation must
+    // not deliver a message twice.
+    val written = List(
+      List(ObservationConfig("agent", List("chat", "chat"))),
+      List(ObservationConfig("agent", List("chat")), ObservationConfig("agent", List("chat"))),
+      List(ObservationConfig("agent", List("chat", "assist")))
+    )
+    written.foreach { observations =>
+      val assist = scenario().copy(
+        participants = Map(
+          "end_user" -> ParticipantConfig("end_user", ParticipantType.Simulated),
+          "representative" -> ParticipantConfig("representative", ParticipantType.Simulated),
+          "agent" -> ParticipantConfig("agent", ParticipantType.Evaluated)
+        ),
+        conversations = List(
+          ConversationConfig("chat", List("end_user", "representative"), Some("end_user")),
+          ConversationConfig("assist", List("agent", "representative"))
+        ),
+        observations = observations
+      )
+      // The customer speaks once, and the representative relays it to the agent once.
+      val spoken = java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
+      val llm: Llm = TestLlm: (system, _) =>
+        val speaker =
+          if system.contains("Your name/role: end_user") then "end_user" else "representative"
+        val text = if spoken.add(speaker) then s"$speaker: I need help." else ""
+        CompletableFuture.completedFuture(text)
+      val agent = ScriptedAgent((_, _) => silent)
+      val (_, probe) = run(assist, agent, llm)
+      assert(expectCompleted(probe)._2 == StopReason.Idle, observations)
+      // The last step (all_waiting) sees the whole history: each message exactly once.
+      val turns = agent.lastHistory.collect { case HistoryEntry.Turn(_, sender, _, _) => sender }
+      assert(turns.count(_ == "end_user") == 1, (observations, agent.lastHistory))
+      assert(turns.count(_ == "representative") == 1, (observations, agent.lastHistory))
+    }
   }
 
   test("a simulated participant whose config name differs from its key still completes as idle") {

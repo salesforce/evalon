@@ -30,6 +30,7 @@ import org.scalatest.funsuite.AnyFunSuite
 import com.salesforce.spearhead.evalon.agent.{Agent, AgentReply, SimpleAgent}
 import com.salesforce.spearhead.evalon.llm.{Llm, TestLlm}
 import com.salesforce.spearhead.evalon.model.*
+import com.salesforce.spearhead.evalon.scenario.ScenarioLoader
 
 class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
 
@@ -463,7 +464,392 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     val ex = intercept[IllegalArgumentException] {
       evalon.runSimple(s, agent, judgeAndChatLlm, failFastOptions)
     }
-    assert(ex.getMessage.contains("observers"))
+    assert(ex.getMessage.contains("agent is in no conversation"))
+  }
+
+  /** Load `yaml` from a temp file, returning the loader's error or the scenario. */
+  private def loadYaml(yaml: String): Either[String, Scenario] =
+    import java.nio.file.Files
+    val tmpPath = Files.createTempFile("scenario-", ".yaml")
+    try
+      Files.writeString(tmpPath, yaml.stripMargin)
+      ScenarioLoader.load(tmpPath)
+    finally Files.deleteIfExists(tmpPath)
+
+  private val criteriaYaml = """
+      |eval_criteria:
+      |  - name: ok
+      |    description: ok
+      |""".stripMargin
+
+  test("every bundled scenario loads") {
+    import java.nio.file.{Files, Path}
+    import scala.jdk.CollectionConverters.*
+    val paths = Files.list(Path.of("scenarios")).iterator.asScala.toList.sorted
+    assert(paths.nonEmpty)
+    paths.foreach(path => assert(ScenarioLoader.load(path).map(_ => ()) == Right(()), path))
+  }
+
+  test("a scenario with no evaluated participant is rejected at load") {
+    val result = loadYaml("""
+      |name: no-evaluated
+      |description: nothing under test
+      |participants:
+      |  end_user:
+      |    type: simulated
+      |  helper:
+      |    type: simulated
+      |conversations:
+      |  - name: chat
+      |    between: [end_user, helper]
+      |    initiated_by: end_user
+      |""" + criteriaYaml)
+    assert(result.left.exists(_.contains("no evaluated participant")), result)
+  }
+
+  test("a scenario with only a name and description is rejected at load") {
+    val result = loadYaml("""
+      |name: empty
+      |description: nothing at all
+      |""")
+    assert(result.isLeft, result)
+  }
+
+  test("an evaluated participant in no conversation is rejected at load") {
+    val result = loadYaml("""
+      |name: no-conversation
+      |description: the agent is never in a conversation
+      |participants:
+      |  end_user:
+      |    type: simulated
+      |  agent:
+      |    type: evaluated
+      |""" + criteriaYaml)
+    assert(result.left.exists(_.contains("agent is in no conversation")), result)
+  }
+
+  test("an evaluated participant in two conversations is rejected at load") {
+    val result = loadYaml("""
+      |name: two-conversations
+      |description: the agent can't choose where to post
+      |participants:
+      |  end_user:
+      |    type: simulated
+      |  supervisor:
+      |    type: simulated
+      |  agent:
+      |    type: evaluated
+      |conversations:
+      |  - name: chat
+      |    between: [end_user, agent]
+      |    initiated_by: end_user
+      |  - name: escalation
+      |    between: [agent, supervisor]
+      |""" + criteriaYaml)
+    assert(result.left.exists(_.contains("chat, escalation")), result)
+    assert(result.left.exists(_.contains("issues/33")), result)
+  }
+
+  test("an observed conversation does not count as the evaluated participant's second") {
+    val result = loadYaml("""
+      |name: assist
+      |description: the agent assists a representative and observes the customer chat
+      |participants:
+      |  end_user:
+      |    type: simulated
+      |  representative:
+      |    type: simulated
+      |  agent:
+      |    type: evaluated
+      |conversations:
+      |  - name: support_chat
+      |    between: [end_user, representative]
+      |    initiated_by: end_user
+      |  - name: agent_assist
+      |    between: [agent, representative]
+      |observations:
+      |  - participant: agent
+      |    observes: [support_chat]
+      |""" + criteriaYaml)
+    assert(result.isRight, result)
+  }
+
+  test("an initiator outside its conversation is rejected at load") {
+    // The runner sends the kickoff to the initiator, which would then open a conversation it
+    // isn't in. Here the evaluated agent would post into the customer's chat.
+    val result = loadYaml("""
+      |name: outside-initiator
+      |description: the agent kicks off a conversation it is not in
+      |participants:
+      |  end_user:
+      |    type: simulated
+      |  representative:
+      |    type: simulated
+      |  agent:
+      |    type: evaluated
+      |conversations:
+      |  - name: support_chat
+      |    between: [end_user, representative]
+      |    initiated_by: agent
+      |  - name: agent_assist
+      |    between: [agent, representative]
+      |""" + criteriaYaml)
+    assert(result.left.exists(_.contains("support_chat is initiated by agent")), result)
+  }
+
+  test("an initiator that is not a participant is rejected at load") {
+    // A misspelt initiator gets no kickoff, so the conversation never starts.
+    val result = loadYaml("""
+      |name: unknown-initiator
+      |description: the initiator is misspelt
+      |participants:
+      |  end_user:
+      |    type: simulated
+      |  agent:
+      |    type: evaluated
+      |conversations:
+      |  - name: chat
+      |    between: [end_user, agent]
+      |    initiated_by: enduser
+      |""" + criteriaYaml)
+    assert(result.left.exists(_.contains("chat is initiated by enduser")), result)
+  }
+
+  test("a conversation member that is not a participant is rejected at load") {
+    // The same typo in between and initiated_by passes the initiator check, but nobody is spawned
+    // as costumer: the kickoff goes nowhere and the run is judged on an empty transcript.
+    val result = loadYaml("""
+      |name: misspelt-member
+      |description: the customer is misspelt in the conversation
+      |participants:
+      |  customer:
+      |    type: simulated
+      |  agent:
+      |    type: evaluated
+      |conversations:
+      |  - name: chat
+      |    between: [costumer, agent]
+      |    initiated_by: costumer
+      |""" + criteriaYaml)
+    assert(result.left.exists(_.contains("chat: costumer")), result)
+  }
+
+  /** An assist scenario whose observations block is `observations`. */
+  private def assistYaml(observations: String): String = """
+      |name: assist-observations
+      |description: the agent assists a representative and observes the customer chat
+      |participants:
+      |  end_user:
+      |    type: simulated
+      |  representative:
+      |    type: simulated
+      |  agent:
+      |    type: evaluated
+      |conversations:
+      |  - name: support_chat
+      |    between: [end_user, representative]
+      |    initiated_by: end_user
+      |  - name: agent_assist
+      |    between: [agent, representative]
+      |event_sources:
+      |  case_events:
+      |    type: simulated
+      |    description: a case system
+      |observations:""" + "\n" + observations + criteriaYaml
+
+  test("two conversations with the same name are rejected at load") {
+    val result = loadYaml("""
+      |name: duplicate-conversation
+      |description: two conversations share a name
+      |participants:
+      |  end_user:
+      |    type: simulated
+      |  supervisor:
+      |    type: simulated
+      |  agent:
+      |    type: evaluated
+      |conversations:
+      |  - name: chat
+      |    between: [end_user, agent]
+      |    initiated_by: end_user
+      |  - name: chat
+      |    between: [supervisor, end_user]
+      |""" + criteriaYaml)
+    assert(result.left.exists(_.contains("chat")), result)
+    assert(result.left.exists(_.contains("more than once")), result)
+  }
+
+  test("a conversation named like an event source is rejected at load") {
+    val result = loadYaml("""
+      |name: shared-name
+      |description: a conversation and an event source share a name
+      |participants:
+      |  end_user:
+      |    type: simulated
+      |  agent:
+      |    type: evaluated
+      |conversations:
+      |  - name: chat
+      |    between: [end_user, agent]
+      |    initiated_by: end_user
+      |event_sources:
+      |  chat:
+      |    type: simulated
+      |    description: a case system
+      |""" + criteriaYaml)
+    assert(result.left.exists(_.contains("both a conversation and an event source: chat")), result)
+  }
+
+  test("a conversation with no name is rejected at load") {
+    // A missing name decodes as "", so two unnamed conversations would also share a name. A name
+    // that shows nothing is no name either: whitespace, Unicode spaces that String.trim keeps,
+    // invisible format characters, and control characters, as YAML escapes.
+    val names = List(
+      "",
+      """ name: "   """",
+      """ name: "\u00A0"""",
+      """ name: "\u3000\u2003"""",
+      """ name: "\u200B\uFEFF"""",
+      """ name: "\u0000\u0085""""
+    )
+    names.foreach { name =>
+      val result = loadYaml(s"""
+        |name: unnamed-conversation
+        |description: the conversation has no name
+        |participants:
+        |  end_user:
+        |    type: simulated
+        |  agent:
+        |    type: evaluated
+        |conversations:
+        |  -$name
+        |    between: [end_user, agent]
+        |    initiated_by: end_user
+        |""" + criteriaYaml)
+      assert(result.left.exists(_.contains("no name")), (name, result))
+    }
+  }
+
+  test("a misspelt observation is rejected at load") {
+    // Each observation would silently do nothing: the agent never sees the customer chat, and the
+    // run is still judged.
+    val cases = List(
+      // Observer not a participant.
+      "|  - participant: agnet\n|    observes: [support_chat]\n" -> "agnet",
+      // Observed target neither a conversation nor an event source.
+      "|  - participant: agent\n|    observes: [suport_chat]\n" -> "suport_chat",
+      // Nothing observed, e.g. a misspelt `observes` key.
+      "|  - participant: agent\n|    observe: [support_chat]\n" -> "observes nothing"
+    )
+    cases.foreach { (observations, expected) =>
+      val result = loadYaml(assistYaml(observations))
+      assert(result.left.exists(_.contains(expected)), (observations, result))
+    }
+  }
+
+  test("an observation of a conversation and an event source loads") {
+    val result =
+      loadYaml(assistYaml("|  - participant: agent\n|    observes: [support_chat, case_events]\n"))
+    assert(
+      result.map(_.observations.flatMap(_.observes)) == Right(List("support_chat", "case_events"))
+    )
+  }
+
+  test("a runner for a misspelt observation is rejected when built") {
+    val base = scenario("direct-misspelt-observation")
+    val s = base.copy(observations = List(ObservationConfig("agent", List("chta"))))
+    val agent: SimpleAgent = (_, _, _) => CompletableFuture.completedFuture(AgentReply.end())
+    val ex = intercept[IllegalArgumentException] {
+      evalon.runSimple(s, agent, judgeAndChatLlm, failFastOptions)
+    }
+    assert(ex.getMessage.contains("chta"))
+  }
+
+  test("a scenario with no eval criteria is rejected at load") {
+    val result = loadYaml("""
+      |name: no-criteria
+      |description: nothing to judge
+      |participants:
+      |  end_user:
+      |    type: simulated
+      |  agent:
+      |    type: evaluated
+      |conversations:
+      |  - name: chat
+      |    between: [end_user, agent]
+      |    initiated_by: end_user
+      |""")
+    assert(result.left.exists(_.contains("no eval_criteria")), result)
+  }
+
+  test("a criterion with no description is rejected at load") {
+    // Each would load as a criterion the judge is asked to apply with nothing to judge against.
+    val criteria = List(
+      "[{}]",
+      """[""]""",
+      """[{name: ok, description: "  "}]""",
+      """[{name: ok, description: ok}, {name: tone}]""",
+      // Unicode whitespace that String.trim keeps (no-break, ideographic, em space), invisible
+      // format characters (zero-width space, byte order mark), and ISO control characters (NUL,
+      // next line, delete), as YAML escapes.
+      """[{name: ok, description: "\u00A0"}]""",
+      """[{name: ok, description: "\u3000"}]""",
+      """[{name: ok, description: "\u2003\u00A0"}]""",
+      """[{name: ok, description: "\u200B\uFEFF"}]""",
+      """[{name: ok, description: "\u0000"}]""",
+      """[{name: ok, description: "\u0085"}]""",
+      """[{name: ok, description: "\u007F\u0000 \u0085"}]"""
+    )
+    criteria.foreach { yaml =>
+      val result = loadYaml(s"""
+        |name: blank-criterion
+        |description: a criterion with nothing to judge
+        |participants:
+        |  end_user:
+        |    type: simulated
+        |  agent:
+        |    type: evaluated
+        |conversations:
+        |  - name: chat
+        |    between: [end_user, agent]
+        |    initiated_by: end_user
+        |eval_criteria: $yaml
+        |""")
+      assert(result.left.exists(_.contains("no description")), (yaml, result))
+    }
+  }
+
+  test("a directly constructed criterion with a null description is rejected at run") {
+    val base = scenario("direct-null-criterion")
+    val s = base.copy(evalCriteria =
+      base.evalCriteria :+ EvalCriterion("tone", null, CriterionType.Binary, false)
+    )
+    val agent: SimpleAgent = (_, _, _) => CompletableFuture.completedFuture(AgentReply.end())
+    val ex = intercept[IllegalArgumentException] {
+      evalon.runSimple(s, agent, judgeAndChatLlm, failFastOptions)
+    }
+    assert(ex.getMessage.contains("criterion 2 (tone) has no description"))
+  }
+
+  test("a directly constructed scenario with no eval criteria is rejected at run") {
+    val s = scenario("direct-no-criteria").copy(evalCriteria = Nil)
+    val agent: SimpleAgent = (_, _, _) => CompletableFuture.completedFuture(AgentReply.end())
+    val ex = intercept[IllegalArgumentException] {
+      evalon.runSimple(s, agent, judgeAndChatLlm, failFastOptions)
+    }
+    assert(ex.getMessage.contains("no eval_criteria"))
+  }
+
+  test("a directly constructed scenario with no evaluated participant is rejected at run") {
+    val base = scenario("direct-no-evaluated")
+    val s = base.copy(participants =
+      base.participants.updated("agent", ParticipantConfig("agent", ParticipantType.Simulated))
+    )
+    val agent: SimpleAgent = (_, _, _) => CompletableFuture.completedFuture(AgentReply.end())
+    val ex = intercept[IllegalArgumentException] {
+      evalon.runSimple(s, agent, judgeAndChatLlm, failFastOptions)
+    }
+    assert(ex.getMessage.contains("no evaluated participant"))
   }
 
   private def scenario(

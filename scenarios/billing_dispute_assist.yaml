@@ -69,7 +69,7 @@ eval_criteria:
     require_tool_call: true
   - name: recommend_resolution
     description: "Agent recommended appropriate resolution (full refund, partial refund, credit, or escalation)"
-    criterion_type: ordinal
+    criterion_type: scored
     require_tool_call: false
     pass_threshold: 0.7
   - name: rep_follows_without_reveal

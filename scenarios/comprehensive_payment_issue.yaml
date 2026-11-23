@@ -159,6 +159,6 @@ eval_criteria:
     pass_threshold: 0.7
   - name: escalate_if_needed
     description: "If needed, agent appropriately escalated the case or added new payment method"
-    criterion_type: ordinal
+    criterion_type: scored
     require_tool_call: false
     pass_threshold: 0.5

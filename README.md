@@ -91,9 +91,9 @@ sbt 'set ThisBuild / version := "0.1.0-LOCAL-SNAPSHOT"' publishLocal
 
 ### Concepts
 
-- **Participants** — `simulated` (LLM-driven), `evaluated` (agent under test; a scenario has at most one), or `custom` (user code). Simulated participants may set `template` to replace the default role-play prompt (the list of their conversations and the tool instructions are always appended).
-- **Conversations** — named channels between participants, with an optional initiator
-- **Observations** — allow a participant to observe messages in conversations it's not directly part of (currently only `EvaluatedAgent` reacts to observed events; `SimulatedParticipant` ignores them — support will be added when a scenario needs it)
+- **Participants** — `simulated` (LLM-driven), `evaluated` (agent under test; a scenario has exactly one, in exactly one conversation, and may observe others), or `custom` (user code). Simulated participants may set `template` to replace the default role-play prompt (the list of their conversations and the tool instructions are always appended).
+- **Conversations** — channels between declared participants, each with a unique name (not shared with an event source either), and an optional initiator, who must be one of them
+- **Observations** — allow a participant to observe messages in conversations it's not directly part of, or the events an event source emits. The observer and every name under `observes` must exist, or the scenario doesn't load (currently only `EvaluatedAgent` reacts to observed events; `SimulatedParticipant` ignores them — support will be added when a scenario needs it)
 - **Event sources** — actors that observe all simulation traffic and emit derived events (⚠️ experimental: `custom` source type is not wired up, dedup of repeated emissions is not handled, and no shipped scenario exercises this path yet)
 - **Transcript** — immutable ordered log of all messages, tool calls, tool results, and events. Each message may include an optional JSON `trace` (how that reply was generated)
 
@@ -224,6 +224,7 @@ max_turns: 10
 # eval_prompt_template: |
 #   You are judging only whether the agent used the right tools.
 
+# Required: at least one criterion, each with a description.
 eval_criteria:
   - name: lookup_flight_status
     description: "Agent looked up the customer's current flight status"
@@ -258,7 +259,7 @@ Judge JSON is per criterion: binary returns `{passed, reasoning}`; scored and ru
 
 A rubric's levels are written in its `description`, each with a name and a score. Scores can use any scale, such as 0 to 1 or 1 to 5, as long as `pass_threshold` uses the same one. The judge picks exactly one level and returns that level's score as written. Only if the levels have no scores does the judge choose a score from 0 to 1 itself, so set `pass_threshold` on that scale. For a rubric:
 
-- A rubric without a `description` fails after evaluation with the reason `Rubric criterion has no description with its levels.`
+- A criterion of any type with a missing or blank `description` is rejected before the run: loading fails, and so does `EvalonRunner.run` for a scenario built in code. Only a direct `Evaluator` call still judges a rubric like that, which fails with the reason `Rubric criterion has no description with its levels.`
 - A rubric without `pass_threshold` fails after evaluation with a reason starting `Rubric criterion has no passThreshold`, unless it already failed for a missing tool call.
 - With `require_tool_call: true`, the judge must also return `passed: true`. Without it the criterion fails whatever the score and threshold.
 - The score must be a number. Anything else fails the criterion with score 0 and a reason starting `Invalid judge response`, unless it already failed for a missing tool call.
