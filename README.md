@@ -259,7 +259,7 @@ Judge JSON is per criterion: binary returns `{passed, reasoning}`; scored and ru
 
 A rubric's levels are written in its `description`, each with a name and a score. Scores can use any scale, such as 0 to 1 or 1 to 5, as long as `pass_threshold` uses the same one. The judge picks exactly one level and returns that level's score as written. Only if the levels have no scores does the judge choose a score from 0 to 1 itself, so set `pass_threshold` on that scale. For a rubric:
 
-- A rubric without a `description` fails after evaluation with the reason `Rubric criterion has no description with its levels.`
+- A criterion of any type with a missing or blank `description` is rejected before the run: loading fails, and so does `EvalonRunner.run` for a scenario built in code. Only a direct `Evaluator` call still judges a rubric like that, which fails with the reason `Rubric criterion has no description with its levels.`
 - A rubric without `pass_threshold` fails after evaluation with a reason starting `Rubric criterion has no passThreshold`, unless it already failed for a missing tool call.
 - With `require_tool_call: true`, the judge must also return `passed: true`. Without it the criterion fails whatever the score and threshold.
 - The score must be a number. Anything else fails the criterion with score 0 and a reason starting `Invalid judge response`, unless it already failed for a missing tool call.
