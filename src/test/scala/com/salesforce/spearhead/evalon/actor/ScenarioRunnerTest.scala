@@ -207,6 +207,22 @@ class ScenarioRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(!transcript.messages.exists(_.sender == "customer"))
   }
 
+  test("a runner for two evaluated participants is rejected when built, not run as one") {
+    // Direct callers bypass EvalonRunner's validation. Throwing when the behavior is built, not
+    // when it starts, also keeps a caller from waiting on a runner that never replies.
+    val base = scenario()
+    val twoAgents = base.copy(participants =
+      base.participants.updated(
+        "supervisor",
+        ParticipantConfig("supervisor", ParticipantType.Evaluated)
+      )
+    )
+    val ex = intercept[IllegalArgumentException] {
+      ScenarioRunner(twoAgents, ScriptedAgent((_, _) => silent), userLlm)
+    }
+    assert(ex.getMessage.contains("only one evaluated participant"))
+  }
+
   test("[END] and max_turns report their stop reasons") {
     val ending = ScriptedAgent((_, _) => Action.End)
     val (_, endProbe) = run(scenario(), ending, userLlm)

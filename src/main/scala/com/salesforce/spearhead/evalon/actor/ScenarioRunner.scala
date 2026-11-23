@@ -24,6 +24,7 @@ import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import com.salesforce.spearhead.evalon.agent.Agent
 import com.salesforce.spearhead.evalon.llm.Llm
 import com.salesforce.spearhead.evalon.model.*
+import com.salesforce.spearhead.evalon.scenario.ScenarioLoader
 
 /**
  * The ScenarioRunner orchestrates a simulation as an actor.
@@ -109,11 +110,28 @@ object ScenarioRunner:
       idleNotified: Boolean = false
   )
 
+  /**
+   * Throws IllegalArgumentException for a scenario that fails [[ScenarioLoader.validateScenario]].
+   * Checked here, not only in EvalonRunner, because direct callers skip EvalonRunner; and when the
+   * behavior is built, not when it starts, so a caller isn't left waiting on a runner that never
+   * replies.
+   */
   def apply(
       scenario: Scenario,
       agent: Agent,
       llm: Llm,
       onEntry: Option[TranscriptEntry => Unit] = None
+  ): Behavior[Command] =
+    ScenarioLoader.validateScenario(scenario).left.foreach { e =>
+      throw IllegalArgumentException(s"Invalid scenario: $e")
+    }
+    run(scenario, agent, llm, onEntry)
+
+  private def run(
+      scenario: Scenario,
+      agent: Agent,
+      llm: Llm,
+      onEntry: Option[TranscriptEntry => Unit]
   ): Behavior[Command] = Behaviors.receive {
     case (ctx, Run(replyTo)) =>
       // Identify the evaluated participant
