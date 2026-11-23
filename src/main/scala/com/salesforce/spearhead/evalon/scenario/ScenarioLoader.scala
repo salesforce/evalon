@@ -122,7 +122,22 @@ object ScenarioLoader:
         "Scenario has no eval_criteria, so every run would score 0 and fail. " +
           "Add at least one criterion."
       )
-    else Right(())
+    else
+      // The description is what the judge applies; an empty one (`[{}]`, `[""]`) still counts
+      // toward the list, so check each. Numbered from 1, since a blank criterion may have no name.
+      val blank = scenario.evalCriteria.zipWithIndex.collect {
+        case (c, i) if Option(c.description).forall(_.trim.isEmpty) =>
+          val name = Option(c.name).map(_.trim).filter(_.nonEmpty).fold("")(n => s" ($n)")
+          s"criterion ${i + 1}$name"
+      }
+      if blank.nonEmpty then
+        Left(
+          (blank match
+            case one :: Nil => s"Eval $one has no description. "
+            case several => s"Eval criteria have no description: ${several.mkString(", ")}. "
+          ) + "The description is what the judge checks the transcript against."
+        )
+      else Right(())
 
   private def validateEventSourceNames(scenario: Scenario): Either[String, Unit] =
     val participantNames = scenario.participants.keySet

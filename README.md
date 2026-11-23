@@ -224,7 +224,7 @@ max_turns: 10
 # eval_prompt_template: |
 #   You are judging only whether the agent used the right tools.
 
-# Required: at least one criterion.
+# Required: at least one criterion, each with a description.
 eval_criteria:
   - name: lookup_flight_status
     description: "Agent looked up the customer's current flight status"

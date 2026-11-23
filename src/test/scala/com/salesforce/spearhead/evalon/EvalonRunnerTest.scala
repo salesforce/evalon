@@ -632,6 +632,45 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(result.left.exists(_.contains("no eval_criteria")), result)
   }
 
+  test("a criterion with no description is rejected at load") {
+    // Each would load as a criterion the judge is asked to apply with nothing to judge against.
+    val criteria = List(
+      "[{}]",
+      """[""]""",
+      """[{name: ok, description: "  "}]""",
+      """[{name: ok, description: ok}, {name: tone}]"""
+    )
+    criteria.foreach { yaml =>
+      val result = loadYaml(s"""
+        |name: blank-criterion
+        |description: a criterion with nothing to judge
+        |participants:
+        |  end_user:
+        |    type: simulated
+        |  agent:
+        |    type: evaluated
+        |conversations:
+        |  - name: chat
+        |    between: [end_user, agent]
+        |    initiated_by: end_user
+        |eval_criteria: $yaml
+        |""")
+      assert(result.left.exists(_.contains("no description")), (yaml, result))
+    }
+  }
+
+  test("a directly constructed criterion with a null description is rejected at run") {
+    val base = scenario("direct-null-criterion")
+    val s = base.copy(evalCriteria =
+      base.evalCriteria :+ EvalCriterion("tone", null, CriterionType.Binary, false)
+    )
+    val agent: SimpleAgent = (_, _, _) => CompletableFuture.completedFuture(AgentReply.end())
+    val ex = intercept[IllegalArgumentException] {
+      evalon.runSimple(s, agent, judgeAndChatLlm, failFastOptions)
+    }
+    assert(ex.getMessage.contains("criterion 2 (tone) has no description"))
+  }
+
   test("a directly constructed scenario with no eval criteria is rejected at run") {
     val s = scenario("direct-no-criteria").copy(evalCriteria = Nil)
     val agent: SimpleAgent = (_, _, _) => CompletableFuture.completedFuture(AgentReply.end())
