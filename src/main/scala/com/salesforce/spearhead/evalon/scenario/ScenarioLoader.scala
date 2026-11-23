@@ -85,6 +85,7 @@ object ScenarioLoader:
       _ <- validateEmittedEventNames(scenario)
       _ <- validateConversationMembers(scenario)
       _ <- validateInitiators(scenario)
+      _ <- validateObservations(scenario)
       agent <- evaluated(scenario)
     yield agent
 
@@ -112,6 +113,32 @@ object ScenarioLoader:
       Left(
         s"Conversation member(s) that are not participants: ${unknown.mkString(", ")}. " +
           s"Declared participants: ${scenario.participants.keys.toList.sorted.mkString(", ")}."
+      )
+    else Right(())
+
+  private def validateObservations(scenario: Scenario): Either[String, Unit] =
+    // An observation with an unknown observer, an unknown target, or no target does nothing:
+    // the runner looks each name up and skips misses. In an assist scenario the agent would never
+    // see the chat it assists with, and the run would still be judged. A target is a conversation
+    // or an event source, whose emitted events observers receive.
+    val targets = scenario.conversations.map(_.name).toSet ++ scenario.eventSources.map(_.name)
+    val problems = scenario.observations.flatMap { obs =>
+      val observer =
+        if scenario.participants.contains(obs.participant) then Nil
+        else List(s"observer ${obs.participant} is not a participant")
+      val observed =
+        if obs.observes.isEmpty then List(s"${obs.participant} observes nothing")
+        else
+          obs.observes.distinct.filterNot(targets).map { target =>
+            s"${obs.participant} observes $target, which is not a conversation or event source"
+          }
+      observer ++ observed
+    }
+    if problems.nonEmpty then
+      Left(
+        s"Observation(s) that would do nothing: ${problems.mkString("; ")}. " +
+          "Check the names against `participants`, `conversations` and `event_sources`, and " +
+          "that each observation lists what it observes under `observes`."
       )
     else Right(())
 

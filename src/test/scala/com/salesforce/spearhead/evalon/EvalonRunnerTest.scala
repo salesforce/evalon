@@ -634,6 +634,64 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(result.left.exists(_.contains("chat: costumer")), result)
   }
 
+  /** An assist scenario whose observations block is `observations`. */
+  private def assistYaml(observations: String): String = """
+      |name: assist-observations
+      |description: the agent assists a representative and observes the customer chat
+      |participants:
+      |  end_user:
+      |    type: simulated
+      |  representative:
+      |    type: simulated
+      |  agent:
+      |    type: evaluated
+      |conversations:
+      |  - name: support_chat
+      |    between: [end_user, representative]
+      |    initiated_by: end_user
+      |  - name: agent_assist
+      |    between: [agent, representative]
+      |event_sources:
+      |  case_events:
+      |    type: simulated
+      |    description: a case system
+      |observations:""" + "\n" + observations + criteriaYaml
+
+  test("a misspelt observation is rejected at load") {
+    // Each observation would silently do nothing: the agent never sees the customer chat, and the
+    // run is still judged.
+    val cases = List(
+      // Observer not a participant.
+      "|  - participant: agnet\n|    observes: [support_chat]\n" -> "agnet",
+      // Observed target neither a conversation nor an event source.
+      "|  - participant: agent\n|    observes: [suport_chat]\n" -> "suport_chat",
+      // Nothing observed, e.g. a misspelt `observes` key.
+      "|  - participant: agent\n|    observe: [support_chat]\n" -> "observes nothing"
+    )
+    cases.foreach { (observations, expected) =>
+      val result = loadYaml(assistYaml(observations))
+      assert(result.left.exists(_.contains(expected)), (observations, result))
+    }
+  }
+
+  test("an observation of a conversation and an event source loads") {
+    val result =
+      loadYaml(assistYaml("|  - participant: agent\n|    observes: [support_chat, case_events]\n"))
+    assert(
+      result.map(_.observations.flatMap(_.observes)) == Right(List("support_chat", "case_events"))
+    )
+  }
+
+  test("a runner for a misspelt observation is rejected when built") {
+    val base = scenario("direct-misspelt-observation")
+    val s = base.copy(observations = List(ObservationConfig("agent", List("chta"))))
+    val agent: SimpleAgent = (_, _, _) => CompletableFuture.completedFuture(AgentReply.end())
+    val ex = intercept[IllegalArgumentException] {
+      evalon.runSimple(s, agent, judgeAndChatLlm, failFastOptions)
+    }
+    assert(ex.getMessage.contains("chta"))
+  }
+
   test("a scenario with no eval criteria is rejected at load") {
     val result = loadYaml("""
       |name: no-criteria
