@@ -92,7 +92,7 @@ sbt 'set ThisBuild / version := "0.1.0-LOCAL-SNAPSHOT"' publishLocal
 ### Concepts
 
 - **Participants** — `simulated` (LLM-driven), `evaluated` (agent under test; a scenario has exactly one, in exactly one conversation, and may observe others), or `custom` (user code). Simulated participants may set `template` to replace the default role-play prompt (the list of their conversations and the tool instructions are always appended).
-- **Conversations** — named channels between declared participants, with an optional initiator, who must be one of them
+- **Conversations** — channels between declared participants, each with a unique name (not shared with an event source either), and an optional initiator, who must be one of them
 - **Observations** — allow a participant to observe messages in conversations it's not directly part of, or the events an event source emits. The observer and every name under `observes` must exist, or the scenario doesn't load (currently only `EvaluatedAgent` reacts to observed events; `SimulatedParticipant` ignores them — support will be added when a scenario needs it)
 - **Event sources** — actors that observe all simulation traffic and emit derived events (⚠️ experimental: `custom` source type is not wired up, dedup of repeated emissions is not handled, and no shipped scenario exercises this path yet)
 - **Transcript** — immutable ordered log of all messages, tool calls, tool results, and events. Each message may include an optional JSON `trace` (how that reply was generated)

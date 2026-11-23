@@ -657,6 +657,66 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
       |    description: a case system
       |observations:""" + "\n" + observations + criteriaYaml
 
+  test("two conversations with the same name are rejected at load") {
+    val result = loadYaml("""
+      |name: duplicate-conversation
+      |description: two conversations share a name
+      |participants:
+      |  end_user:
+      |    type: simulated
+      |  supervisor:
+      |    type: simulated
+      |  agent:
+      |    type: evaluated
+      |conversations:
+      |  - name: chat
+      |    between: [end_user, agent]
+      |    initiated_by: end_user
+      |  - name: chat
+      |    between: [supervisor, end_user]
+      |""" + criteriaYaml)
+    assert(result.left.exists(_.contains("chat")), result)
+    assert(result.left.exists(_.contains("more than once")), result)
+  }
+
+  test("a conversation named like an event source is rejected at load") {
+    val result = loadYaml("""
+      |name: shared-name
+      |description: a conversation and an event source share a name
+      |participants:
+      |  end_user:
+      |    type: simulated
+      |  agent:
+      |    type: evaluated
+      |conversations:
+      |  - name: chat
+      |    between: [end_user, agent]
+      |    initiated_by: end_user
+      |event_sources:
+      |  chat:
+      |    type: simulated
+      |    description: a case system
+      |""" + criteriaYaml)
+    assert(result.left.exists(_.contains("both a conversation and an event source: chat")), result)
+  }
+
+  test("a conversation with no name is rejected at load") {
+    // A missing name decodes as "", so two unnamed conversations would also share a name.
+    val result = loadYaml("""
+      |name: unnamed-conversation
+      |description: the conversation has no name
+      |participants:
+      |  end_user:
+      |    type: simulated
+      |  agent:
+      |    type: evaluated
+      |conversations:
+      |  - between: [end_user, agent]
+      |    initiated_by: end_user
+      |""" + criteriaYaml)
+    assert(result.left.exists(_.contains("no name")), result)
+  }
+
   test("a misspelt observation is rejected at load") {
     // Each observation would silently do nothing: the agent never sees the customer chat, and the
     // run is still judged.

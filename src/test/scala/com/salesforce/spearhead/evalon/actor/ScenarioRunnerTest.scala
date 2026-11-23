@@ -209,6 +209,26 @@ class ScenarioRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(!transcript.entries.exists(_.event.exists(_.name == Event.AllWaiting)))
   }
 
+  test("a runner for two conversations with the same name is rejected when built") {
+    // Routing is by name, so the two "chat"s would merge: the customer's message to the agent
+    // would also reach the supervisor and the helper, who share no conversation with the customer.
+    val base = scenario()
+    val duplicate = base.copy(
+      participants = base.participants ++ List("supervisor", "helper").map(n =>
+        n -> ParticipantConfig(n, ParticipantType.Simulated)
+      ),
+      conversations = List(
+        ConversationConfig("chat", List("end_user", "agent"), initiatedBy = Some("end_user")),
+        ConversationConfig("chat", List("supervisor", "helper"))
+      )
+    )
+    val ex = intercept[IllegalArgumentException] {
+      ScenarioRunner(duplicate, ScriptedAgent((_, _) => silent), userLlm)
+    }
+    assert(ex.getMessage.contains("chat"))
+    assert(ex.getMessage.contains("more than once"))
+  }
+
   test("an observed message reaches each observer once, however the observation is written") {
     // The agent observes the customer's chat with a representative. Repeating the target,
     // splitting it across two observations, or also observing the agent's own conversation must

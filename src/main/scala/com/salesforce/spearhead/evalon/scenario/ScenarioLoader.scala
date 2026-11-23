@@ -83,6 +83,7 @@ object ScenarioLoader:
     for
       _ <- validateEventSourceNames(scenario)
       _ <- validateEmittedEventNames(scenario)
+      _ <- validateConversationNames(scenario)
       _ <- validateConversationMembers(scenario)
       _ <- validateInitiators(scenario)
       _ <- validateObservations(scenario)
@@ -99,6 +100,33 @@ object ScenarioLoader:
       _ <- validateSimulation(scenario)
       _ <- validateEvalCriteria(scenario)
     yield ()
+
+  private def validateConversationNames(scenario: Scenario): Either[String, Unit] =
+    // The runner routes by conversation name: a message is delivered to every participant in a
+    // conversation of that name. Two conversations with one name merge, so a message reaches
+    // participants of the other conversation too. A missing name decodes as "", which collides the
+    // same way. An event source with a conversation's name makes the name ambiguous as an
+    // observation target.
+    val names = scenario.conversations.map(_.name)
+    val unnamed = names.count(n => n == null || n.trim.isEmpty)
+    val repeated = names.filter(n => n != null && n.trim.nonEmpty).groupBy(identity).collect {
+      case (name, uses) if uses.size > 1 => name
+    }
+    val sharedWithSources = names.toSet.intersect(scenario.eventSources.map(_.name).toSet)
+    if unnamed > 0 then
+      Left(s"$unnamed conversation(s) have no name. Every conversation needs a unique name.")
+    else if repeated.nonEmpty then
+      Left(
+        s"Conversation name(s) used more than once: ${repeated.toList.sorted.mkString(", ")}. " +
+          "Messages are routed by name, so conversations with one name would merge."
+      )
+    else if sharedWithSources.nonEmpty then
+      Left(
+        s"Name(s) used by both a conversation and an event source: " +
+          s"${sharedWithSources.toList.sorted.mkString(", ")}. An observation of that name would " +
+          "be ambiguous."
+      )
+    else Right(())
 
   private def validateConversationMembers(scenario: Scenario): Either[String, Unit] =
     // The runner spawns only declared participants, so an undeclared name in `between` (usually a
