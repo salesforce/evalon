@@ -424,3 +424,35 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
     retry.reply(send("support_chat", "Goodbye!"))
     expectSent(runner, "support_chat", "Goodbye!")
   }
+
+  test("an opening turn describes the other conversations as they really are") {
+    val bothInitiated = Map(
+      "support_chat" -> ConversationConfig(
+        "support_chat",
+        List("end_user", "rep"),
+        initiatedBy = Some("rep")
+      ),
+      "agent_assist" -> ConversationConfig(
+        "agent_assist",
+        List("agent", "rep"),
+        initiatedBy = Some("rep")
+      )
+    )
+    val llm = ControlledLlm()
+    val (rep, runner) = spawnRep(llm, convs = bothInitiated)
+
+    rep ! Participant.Kickoff("support_chat")
+    val first = llm.nextCall()
+    // agent_assist is the rep's to open, not waiting on someone else.
+    assert(
+      first.request.system.contains("- \"agent_assist\" with: agent (not started yet: you open it)")
+    )
+    first.reply(send("support_chat", "Hi, how can I help?"))
+    expectSent(runner, "support_chat", "Hi, how can I help?")
+    expectIdle(runner)
+
+    rep ! Participant.Kickoff("agent_assist")
+    val second = llm.nextCall().request.system
+    // support_chat was opened last turn, so it has started.
+    assert(second.contains("- \"support_chat\" with: end_user\n"), s"in:\n$second")
+  }

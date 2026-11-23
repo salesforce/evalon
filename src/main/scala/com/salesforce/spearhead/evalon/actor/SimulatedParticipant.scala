@@ -214,18 +214,25 @@ object SimulatedParticipant:
       Behaviors.same
   }
 
-  /**
-   * Conversations the participant may post in now: those with no initiator, those it initiates, and
-   * those whose initiator has spoken.
-   */
-  private def allowedConversations(setup: Setup, history: History): List[String] =
+  /** Conversations that have started: no initiator, or the initiator has spoken there. */
+  private def startedConversations(setup: Setup, history: History): Set[String] =
     setup.conversations.collect {
       case conv
           if conv.initiatedBy.forall(initiator =>
-            initiator == setup.config.name || history.lines
-              .exists(line => line.conversation == conv.name && line.sender == initiator)
+            history.lines.exists(line =>
+              line.conversation == conv.name && line.sender == initiator && !line.kickoff
+            )
           ) =>
         conv.name
+    }.toSet
+
+  /**
+   * Conversations the participant may post in on an ordinary turn: those that have started, and
+   * those it initiates.
+   */
+  private def allowedConversations(setup: Setup, started: Set[String]): List[String] =
+    setup.conversations.collect {
+      case conv if started(conv.name) || conv.initiatedBy.contains(setup.config.name) => conv.name
     }
 
   private def startTurn(
@@ -239,14 +246,15 @@ object SimulatedParticipant:
     // that arrived meanwhile, including another kickoff, is still new and gets the next turn.
     val opening = history.nextKickoff
     val shown = opening.fold(setup.conversations.map(_.name).toSet)(Set(_))
-    val allowed = opening.fold(allowedConversations(setup, history))(List(_))
+    val started = startedConversations(setup, history)
+    val allowed = opening.fold(allowedConversations(setup, started))(List(_))
     if allowed.isEmpty then
       ctx.log.info("{} has no conversation it may post in yet", setup.config.name)
       goIdle(setup, history.markSeen(shown), timers)
     else
       val timeline = renderTimeline(setup.config.name, history, shown, opening)
       val request = LlmRequest(
-        system = buildSystemPrompt(setup.config, setup.conversations, allowed.toSet),
+        system = buildSystemPrompt(setup.config, setup.conversations, started),
         messages = List(ChatMessage.user(timeline)),
         tools = turnTools(allowed)
       )
@@ -439,14 +447,17 @@ object SimulatedParticipant:
   private def buildSystemPrompt(
       config: ParticipantConfig,
       conversations: List[ConversationConfig],
-      allowed: Set[String]
+      started: Set[String]
   ): String =
+    // Status comes from the conversations themselves, not from what this turn offers: an opening
+    // turn offers one conversation, but the others are no less started.
     val conversationList = conversations.map { conv =>
       val others = conv.between.filter(_ != config.name).mkString(", ")
       val notStarted = conv.initiatedBy match
-        case Some(initiator) if !allowed.contains(conv.name) =>
-          s" (not started yet: you can post here once $initiator has)"
-        case _ => ""
+        case Some(_) if started(conv.name) => ""
+        case Some(initiator) if initiator == config.name => " (not started yet: you open it)"
+        case Some(initiator) => s" (not started yet: you can post here once $initiator has)"
+        case None => ""
       s"""- "${conv.name}" with: $others$notStarted"""
     }
 
