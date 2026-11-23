@@ -160,7 +160,7 @@ Evalon retries 429/5xx responses with exponential backoff (3 retries, 1s base). 
 
 ### Plugging in an LLM
 
-`Llm` has one method, `complete(LlmRequest): CompletionStage<LlmResponse>`. A request carries a system prompt, roled messages and the tools the model may call (`LlmTool`: name, description, JSON Schema). A response carries the model's text and its tool calls (`LlmToolCall`: name, arguments as JSON). The judge and event sources send no tools and read only the text; simulated participants always send tools and act only through the calls, so your client must support tool calls. Fail the stage when the model was cut off at its token limit: returned as a short reply, a participant reads it as silence. `AnthropicClient` does both. For a synchronous Java client:
+`Llm` has one method, `complete(LlmRequest): CompletionStage<LlmResponse>`. A request carries a system prompt, roled messages and the tools the model may call (`LlmTool`: name, description, JSON Schema). A response carries the model's text and its tool calls (`LlmToolCall`: name, arguments as JSON). The judge and event sources send no tools and read only the text; simulated participants always send tools and act only through the calls, so your client must support tool calls. Fail the stage when the model didn't finish its reply (cut off at its output or context limit, or refused): returned as a short reply, a participant reads it as silence. `AnthropicClient` does both. For a synchronous Java client:
 
 ```java
 Llm llm = Llm.blocking(request -> {

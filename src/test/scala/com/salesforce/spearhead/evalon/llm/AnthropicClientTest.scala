@@ -41,15 +41,23 @@ class AnthropicClientTest extends AnyFunSuite:
   private val sendArgs = Json.obj("conversation" -> "chat".asJson, "text" -> "Hi".asJson)
   private val sendCall = ContentBlock.ToolUseBlock("call-1", "send_message", sendArgs)
 
-  test("a reply cut off by max_tokens fails instead of reading as silence") {
-    val result = complete(stubClient("max_tokens", ContentBlock.TextBlock("Let me think")))
-    assert(result.failed.get.getMessage.contains("max_tokens"))
-  }
-
   test("a reply cut off by max_tokens fails even after a complete tool call") {
     // The calls that would have followed are lost, so acting on the first would be acting on part
     // of a turn.
     assert(complete(stubClient("max_tokens", sendCall)).isFailure)
+  }
+
+  test("a reply that stopped for any reason but finishing fails, naming the reason") {
+    // A context-window cutoff reads as silence just like max_tokens; a refusal isn't an answer.
+    List("max_tokens", "model_context_window_exceeded", "refusal", "pause_turn", "stop_sequence")
+      .foreach { reason =>
+        val result = complete(stubClient(reason, ContentBlock.TextBlock("partial")))
+        assert(result.failed.get.getMessage.contains(reason), reason)
+      }
+  }
+
+  test("a reply that ended its turn returns its text") {
+    assert(complete(stubClient("end_turn", ContentBlock.TextBlock("Done."))).get.text == "Done.")
   }
 
   test("a finished reply returns its text and tool calls") {

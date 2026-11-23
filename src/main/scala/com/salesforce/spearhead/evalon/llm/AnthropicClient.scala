@@ -102,14 +102,22 @@ class AnthropicClient(
 
 object AnthropicClient:
 
+  /** Stop reasons for a reply the model finished: it ended its turn, or stopped to call tools. */
+  private val FinishedStopReasons = Set("end_turn", "tool_use")
+
   /**
-   * The response's text blocks joined by newlines, and its tool calls in order. A reply cut off at
-   * max_tokens is a failure, not a short reply: a participant cut off before its tool call would
-   * read as silent, and one cut off after a call would act on part of its turn.
+   * The response's text blocks joined by newlines, and its tool calls in order. A reply the model
+   * didn't finish fails instead (cut off at max_tokens or the context window, refused, paused): a
+   * participant cut off before its tool call would read as silent, and one cut off after a call
+   * would act on part of its turn. Reasons are allowed, not denied, so a new one fails loudly.
    */
   private[llm] def toLlmResponse(response: CreateMessageResponse): Try[LlmResponse] =
-    if response.stopReason == "max_tokens" then
-      Failure(IllegalStateException(s"Reply ${response.id} was cut off at max_tokens"))
+    if !FinishedStopReasons(response.stopReason) then
+      Failure(
+        IllegalStateException(
+          s"Reply ${response.id} did not finish: stop_reason ${response.stopReason}"
+        )
+      )
     else
       Success(
         LlmResponse(
