@@ -83,6 +83,7 @@ object ScenarioLoader:
     for
       _ <- validateEventSourceNames(scenario)
       _ <- validateEmittedEventNames(scenario)
+      _ <- validateConversationMembers(scenario)
       _ <- validateInitiators(scenario)
       agent <- evaluated(scenario)
     yield agent
@@ -98,10 +99,26 @@ object ScenarioLoader:
       _ <- validateEvalCriteria(scenario)
     yield ()
 
+  private def validateConversationMembers(scenario: Scenario): Either[String, Unit] =
+    // The runner spawns only declared participants, so an undeclared name in `between` (usually a
+    // typo) is nobody: nothing is delivered to it, and a kickoff for it never starts the
+    // conversation. Checking `between` also covers an initiator with the same typo.
+    val unknown = for
+      conv <- scenario.conversations
+      member <- conv.between.distinct
+      if !scenario.participants.contains(member)
+    yield s"${conv.name}: $member"
+    if unknown.nonEmpty then
+      Left(
+        s"Conversation member(s) that are not participants: ${unknown.mkString(", ")}. " +
+          s"Declared participants: ${scenario.participants.keys.toList.sorted.mkString(", ")}."
+      )
+    else Right(())
+
   private def validateInitiators(scenario: Scenario): Either[String, Unit] =
     // The runner sends the kickoff to the initiator, wherever it is. One outside the conversation
-    // would open a conversation it isn't in (an evaluated agent replies where it was addressed),
-    // and one that isn't a participant gets no kickoff, so the conversation never starts.
+    // would open a conversation it isn't in (an evaluated agent replies where it was addressed).
+    // Members are already checked to be participants, so an initiator in `between` is one too.
     val outside = for
       conv <- scenario.conversations
       initiator <- conv.initiatedBy

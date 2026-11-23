@@ -615,6 +615,25 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(result.left.exists(_.contains("chat is initiated by enduser")), result)
   }
 
+  test("a conversation member that is not a participant is rejected at load") {
+    // The same typo in between and initiated_by passes the initiator check, but nobody is spawned
+    // as costumer: the kickoff goes nowhere and the run is judged on an empty transcript.
+    val result = loadYaml("""
+      |name: misspelt-member
+      |description: the customer is misspelt in the conversation
+      |participants:
+      |  customer:
+      |    type: simulated
+      |  agent:
+      |    type: evaluated
+      |conversations:
+      |  - name: chat
+      |    between: [costumer, agent]
+      |    initiated_by: costumer
+      |""" + criteriaYaml)
+    assert(result.left.exists(_.contains("chat: costumer")), result)
+  }
+
   test("a scenario with no eval criteria is rejected at load") {
     val result = loadYaml("""
       |name: no-criteria
