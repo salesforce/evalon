@@ -71,12 +71,9 @@ object SimulatedParticipant:
       copy(lines = lines.map(l => if conversations(l.conversation) then l.copy(seen = true) else l))
     def hasUnseen: Boolean = lines.exists(!_.seen)
 
-    /** Conversations whose kickoff the participant hasn't had a turn for yet. */
-    def pendingKickoffs: List[String] =
-      lines
-        .collect { case l if !l.seen && l.sender == KickoffSender => l.conversation }
-        .distinct
-        .toList
+    /** The earliest conversation whose kickoff the participant hasn't had a turn for yet. */
+    def nextKickoff: Option[String] =
+      lines.collectFirst { case l if !l.seen && l.sender == KickoffSender => l.conversation }
 
   /** What one turn asked for, after validating the model's tool calls. */
   private[actor] enum TurnAction:
@@ -228,13 +225,12 @@ object SimulatedParticipant:
       timers: TimerScheduler[Cmd],
       ctx: ActorContext[Cmd]
   ): Behavior[Cmd] =
-    // A kickoff turn only opens its conversation(s): offered anything else, the opening line could
-    // go to the wrong one. It shows and marks seen only those conversations, so anything else that
-    // arrived meanwhile is still new and gets the next turn.
-    val opening = history.pendingKickoffs
-    val shown = if opening.nonEmpty then opening.toSet else setup.conversations.map(_.name).toSet
-    val allowed =
-      if opening.nonEmpty then opening else allowedConversations(setup, history)
+    // A kickoff turn opens one conversation, offered alone: offered anything else, the opening
+    // line could go to the wrong one. It shows and marks seen only that conversation, so anything
+    // that arrived meanwhile, including another kickoff, is still new and gets the next turn.
+    val opening = history.nextKickoff
+    val shown = opening.fold(setup.conversations.map(_.name).toSet)(Set(_))
+    val allowed = opening.fold(allowedConversations(setup, history))(List(_))
     if allowed.isEmpty then
       ctx.log.info("{} has no conversation it may post in yet", setup.config.name)
       goIdle(setup, history.markSeen(shown), timers)
@@ -404,13 +400,13 @@ object SimulatedParticipant:
 
   /**
    * The timeline of the `shown` conversations as one transcript, lines tagged with sender and
-   * conversation. On a kickoff turn (`opening` non-empty) the nudge asks to open those.
+   * conversation. On a kickoff turn the nudge asks to open the `opening` conversation.
    */
   private def renderTimeline(
       name: String,
       history: History,
       shown: Set[String],
-      opening: List[String]
+      opening: Option[String]
   ): String =
     val lines = history.lines.collect {
       case line if shown(line.conversation) =>
@@ -418,11 +414,10 @@ object SimulatedParticipant:
         val marker = if line.seen then "" else "(new) "
         s"$marker[$who in ${line.conversation}]: ${line.content}"
     }
-    val nudge =
-      if opening.nonEmpty then
-        val names = opening.map(c => s"\"$c\"").mkString(", ")
-        s"[system]: Open $names now: call $SendMessage there with your opening message."
-      else
+    val nudge = opening match
+      case Some(conv) =>
+        s"""[system]: Open "$conv" now: call $SendMessage there with your opening message."""
+      case None =>
         s"[system]: It's your turn. Call $SendMessage for each message you want to send, " +
           "or call no tool to stay silent."
     (lines :+ "" :+ nudge).mkString("\n")

@@ -347,3 +347,53 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
         assert(cause.isInstanceOf[NullPointerException])
       case other => fail(s"expected a failure, got $other")
   }
+
+  test("two kickoffs that arrive together get one opening turn each") {
+    // With a thinking delay both kickoffs land before the first turn. Each conversation must still
+    // be opened in its own turn, offered alone, so neither opening line can go to the wrong one.
+    val bothInitiated = Map(
+      "support_chat" -> ConversationConfig(
+        "support_chat",
+        List("end_user", "rep"),
+        initiatedBy = Some("rep")
+      ),
+      "agent_assist" -> ConversationConfig(
+        "agent_assist",
+        List("agent", "rep"),
+        initiatedBy = Some("rep")
+      )
+    )
+    val llm = ControlledLlm()
+    val fast = ParticipantConfig("rep", responseSpeed = Some(ResponseSpeed.Fast))
+    val (rep, runner) = spawnRep(llm, fast, bothInitiated)
+
+    rep ! Participant.ReceiveMessage(kickoff, "support_chat")
+    rep ! Participant.ReceiveMessage(kickoff, "agent_assist")
+
+    val first = llm.nextCall()
+    assert(first.offered.size == 1)
+    val firstConv = first.offered.head
+    first.reply(send(firstConv, s"Opening $firstConv"))
+    expectSent(runner, firstConv, s"Opening $firstConv")
+
+    val second = llm.calls.poll(6, java.util.concurrent.TimeUnit.SECONDS)
+    assert(second != null, "expected an opening turn for the other conversation")
+    val otherConv = Set("support_chat", "agent_assist") - firstConv
+    assert(second.offered.toSet == otherConv)
+    assert(second.timeline.contains(s"Open \"${otherConv.head}\" now"))
+    second.reply(send(otherConv.head, "Hello"))
+    expectSent(runner, otherConv.head, "Hello")
+    expectIdle(runner)
+    llm.assertNoMoreCalls()
+  }
+
+  test("silence on an opening turn still marks that kickoff seen") {
+    // Otherwise the unseen kickoff would trigger turn after turn.
+    val llm = ControlledLlm()
+    val (rep, runner) = spawnRep(llm, convs = repInitiates)
+
+    rep ! Participant.ReceiveMessage(kickoff, "support_chat")
+    llm.nextCall().reply()
+    expectIdle(runner)
+    llm.assertNoMoreCalls()
+  }
