@@ -297,8 +297,9 @@ object SimulatedParticipant:
     Behaviors.stopped
 
   /**
-   * Send the turn's messages in order. `end_conversation` ends the run, so anything after it is
-   * dropped. Otherwise take another turn if something from someone else arrived meanwhile.
+   * Send the turn's messages in order, then end the run if the turn ends with `end_conversation`
+   * ([[parseTurn]] drops anything after it). Otherwise take another turn if something unseen
+   * arrived meanwhile.
    */
   private def act(
       setup: Setup,
@@ -335,7 +336,11 @@ object SimulatedParticipant:
       response: LlmResponse,
       allowed: List[String]
   ): Either[String, List[TurnAction]] =
-    val calls = Option(response.toolCalls).getOrElse(Nil)
+    // Calls after end_conversation never run (the run ends), so they aren't validated: an invalid
+    // one must not cancel a valid ending.
+    val all = Option(response.toolCalls).getOrElse(Nil)
+    val endAt = all.indexWhere(_.name == EndConversation)
+    val calls = if endAt >= 0 then all.take(endAt + 1) else all
     val parsed = calls.map { call =>
       val args = Option(call.arguments).getOrElse(Json.Null).hcursor
       call.name match

@@ -308,3 +308,15 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(followUp != null, "expected a turn for the agent's message")
     assert(followUp.offered.toSet == Set("support_chat", "agent_assist"))
   }
+
+  test("an invalid call after end_conversation doesn't cancel the ending") {
+    // Calls after end_conversation are dropped unrun, so they mustn't be validated either.
+    val llm = ControlledLlm()
+    val (rep, runner) = spawnRep(llm)
+
+    rep ! Participant.ReceiveMessage(Message("end_user", "Thanks, bye!"), "support_chat")
+    llm.nextCall().reply(send("support_chat", "Goodbye!"), end, send("customer_chat", "oops"))
+    expectSent(runner, "support_chat", "Goodbye!")
+    assert(expectResponse(runner).action == Action.End)
+    llm.assertNoMoreCalls()
+  }
