@@ -83,6 +83,7 @@ object ScenarioLoader:
     for
       _ <- validateEventSourceNames(scenario)
       _ <- validateEmittedEventNames(scenario)
+      _ <- validateInitiators(scenario)
       agent <- evaluated(scenario)
     yield agent
 
@@ -96,6 +97,22 @@ object ScenarioLoader:
       _ <- validateSimulation(scenario)
       _ <- validateEvalCriteria(scenario)
     yield ()
+
+  private def validateInitiators(scenario: Scenario): Either[String, Unit] =
+    // The runner sends the kickoff to the initiator, wherever it is. One outside the conversation
+    // would open a conversation it isn't in (an evaluated agent replies where it was addressed),
+    // and one that isn't a participant gets no kickoff, so the conversation never starts.
+    val outside = for
+      conv <- scenario.conversations
+      initiator <- conv.initiatedBy
+      if !conv.between.contains(initiator)
+    yield s"${conv.name} is initiated by $initiator, who is not in its between list"
+    if outside.nonEmpty then
+      Left(
+        s"Conversation initiator(s) outside their conversation: ${outside.mkString("; ")}. " +
+          "Add the initiator to `between`, or initiate with a participant who is in it."
+      )
+    else Right(())
 
   private def validateEvalCriteria(scenario: Scenario): Either[String, Unit] =
     // The judge would make no calls and score the run 0.0, failed: an incomplete scenario that

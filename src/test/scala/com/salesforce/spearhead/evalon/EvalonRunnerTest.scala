@@ -574,6 +574,47 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(result.isRight, result)
   }
 
+  test("an initiator outside its conversation is rejected at load") {
+    // The runner sends the kickoff to the initiator, which would then open a conversation it
+    // isn't in. Here the evaluated agent would post into the customer's chat.
+    val result = loadYaml("""
+      |name: outside-initiator
+      |description: the agent kicks off a conversation it is not in
+      |participants:
+      |  end_user:
+      |    type: simulated
+      |  representative:
+      |    type: simulated
+      |  agent:
+      |    type: evaluated
+      |conversations:
+      |  - name: support_chat
+      |    between: [end_user, representative]
+      |    initiated_by: agent
+      |  - name: agent_assist
+      |    between: [agent, representative]
+      |""" + criteriaYaml)
+    assert(result.left.exists(_.contains("support_chat is initiated by agent")), result)
+  }
+
+  test("an initiator that is not a participant is rejected at load") {
+    // A misspelt initiator gets no kickoff, so the conversation never starts.
+    val result = loadYaml("""
+      |name: unknown-initiator
+      |description: the initiator is misspelt
+      |participants:
+      |  end_user:
+      |    type: simulated
+      |  agent:
+      |    type: evaluated
+      |conversations:
+      |  - name: chat
+      |    between: [end_user, agent]
+      |    initiated_by: enduser
+      |""" + criteriaYaml)
+    assert(result.left.exists(_.contains("chat is initiated by enduser")), result)
+  }
+
   test("a scenario with no eval criteria is rejected at load") {
     val result = loadYaml("""
       |name: no-criteria

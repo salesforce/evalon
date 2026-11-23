@@ -141,6 +141,22 @@ class ScenarioRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(ex.getMessage.contains("no evaluated participant"))
   }
 
+  test("a runner for a conversation whose initiator is outside it is rejected when built") {
+    val base = scenario()
+    val outside = base.copy(
+      participants = base.participants.updated(
+        "helper",
+        ParticipantConfig("helper", ParticipantType.Simulated)
+      ),
+      conversations = base.conversations :+
+        ConversationConfig("side", List("end_user", "helper"), initiatedBy = Some("agent"))
+    )
+    val ex = intercept[IllegalArgumentException] {
+      ScenarioRunner(outside, ScriptedAgent((_, _) => silent), userLlm)
+    }
+    assert(ex.getMessage.contains("side is initiated by agent"))
+  }
+
   test("a stale idle report does not end the run") {
     // The user's LLM call never finishes, so the user is busy with the kickoff it was delivered.
     val pending = CompletableFuture[String]()
