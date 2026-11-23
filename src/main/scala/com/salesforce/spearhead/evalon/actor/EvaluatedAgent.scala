@@ -58,26 +58,28 @@ object EvaluatedAgent:
     case Participant.ReceiveMessage(msg, conversation) => (msg, conversation)
     case Participant.Kickoff(conversation) => (Participant.KickoffMessage, conversation)
 
+  /**
+   * `agentName` is the participant's scenario key, which the runner counts deliveries under.
+   * `ownConversation` is the one conversation it is in (see [[ScenarioLoader.evaluated]]): a step
+   * woken by an observed event replies there.
+   */
   def apply(
       agent: Agent,
       runner: ActorRef[ScenarioRunner.Command],
       agentName: String,
-      directConversations: Set[String],
-      participantName: String
+      ownConversation: String
   ): Behavior[Participant.Command | AgentResult] =
-    // Idle reports must carry this actor's own participant name, which the runner counts its
-    // deliveries under. `agentName` can differ when a scenario has several evaluated participants.
     Behaviors.setup { _ =>
-      given reporter: IdleReporter = IdleReporter(participantName, runner)
+      given reporter: IdleReporter = IdleReporter(agentName, runner)
       reporter.reportIdle() // steps only on deliveries
-      idle(agent, runner, agentName, directConversations, Nil)
+      idle(agent, runner, agentName, ownConversation, Nil)
     }
 
   private def idle(
       agent: Agent,
       runner: ActorRef[ScenarioRunner.Command],
       agentName: String,
-      directConversations: Set[String],
+      ownConversation: String,
       history: List[HistoryEntry]
   )(using reporter: IdleReporter): Behavior[Participant.Command | AgentResult] = Behaviors.receive {
     // Every delivery while idle starts a step, so idle is reported when that step finishes.
@@ -90,7 +92,7 @@ object EvaluatedAgent:
         agent,
         runner,
         agentName,
-        directConversations,
+        ownConversation,
         newHistory,
         events = Nil,
         respondIn = conversation,
@@ -105,10 +107,10 @@ object EvaluatedAgent:
         agent,
         runner,
         agentName,
-        directConversations,
+        ownConversation,
         newHistory,
         events = systemEvents,
-        respondIn = directConversations.head,
+        respondIn = ownConversation,
         Pending(Set.empty, Nil),
         ctx
       )
@@ -157,7 +159,7 @@ object EvaluatedAgent:
       agent: Agent,
       runner: ActorRef[ScenarioRunner.Command],
       agentName: String,
-      directConversations: Set[String],
+      ownConversation: String,
       history: List[HistoryEntry],
       pending: Pending
   )(using reporter: IdleReporter): Behavior[Participant.Command | AgentResult] = Behaviors.receive {
@@ -167,7 +169,7 @@ object EvaluatedAgent:
       val newHistory =
         history :+ HistoryEntry.Turn(conversation, msg.sender, msg.content, msg.trace)
       val newPending = pending.copy(conversations = pending.conversations + conversation)
-      generating(agent, runner, agentName, directConversations, newHistory, newPending)
+      generating(agent, runner, agentName, ownConversation, newHistory, newPending)
 
     case (_, Participant.ReceiveEvents(events)) =>
       reporter.received()
@@ -177,11 +179,11 @@ object EvaluatedAgent:
       // idle's handling) so the agent gets to react to what it observed mid-step.
       val observedTurns = events.exists(_.name == Event.ConversationMessage)
       val newConversations =
-        if observedTurns then pending.conversations + directConversations.head
+        if observedTurns then pending.conversations + ownConversation
         else pending.conversations
       val newPending =
         Pending(conversations = newConversations, events = pending.events ++ systemEvents)
-      generating(agent, runner, agentName, directConversations, newHistory, newPending)
+      generating(agent, runner, agentName, ownConversation, newHistory, newPending)
 
     case (ctx, AgentResult(Failure(e), _)) =>
       // A failed step is an infrastructure failure, not agent behavior. Surface it to the runner
@@ -208,7 +210,7 @@ object EvaluatedAgent:
             agent,
             runner,
             agentName,
-            directConversations,
+            ownConversation,
             newHistory,
             events = pending.events,
             respondIn = conv,
@@ -220,23 +222,23 @@ object EvaluatedAgent:
             agent,
             runner,
             agentName,
-            directConversations,
+            ownConversation,
             newHistory,
             events = pending.events,
-            respondIn = directConversations.head,
+            respondIn = ownConversation,
             Pending(Set.empty, Nil),
             ctx
           )
         case None =>
           reporter.reportIdle()
-          idle(agent, runner, agentName, directConversations, newHistory)
+          idle(agent, runner, agentName, ownConversation, newHistory)
   }
 
   private def startStep(
       agent: Agent,
       runner: ActorRef[ScenarioRunner.Command],
       agentName: String,
-      directConversations: Set[String],
+      ownConversation: String,
       history: List[HistoryEntry],
       events: List[Event],
       respondIn: String,
@@ -244,7 +246,7 @@ object EvaluatedAgent:
       ctx: ActorContext[Participant.Command | AgentResult]
   )(using IdleReporter): Behavior[Participant.Command | AgentResult] =
     ctx.pipeToSelf(safeStep(agent, history, events, respondIn))(AgentResult(_, respondIn))
-    generating(agent, runner, agentName, directConversations, history, pending)
+    generating(agent, runner, agentName, ownConversation, history, pending)
 
   /**
    * Invoke the agent's step, capturing a synchronous throw or a null result as a failed Future.

@@ -29,31 +29,81 @@ object ScenarioLoader:
   private val reservedNames = Set("user", "assistant")
 
   /**
-   * Checks a scenario for configurations that crash or misclassify failures at runtime. Run by
-   * {@link #load} and again by {@code EvalonRunner} before a simulation starts, so scenarios built
-   * directly in code are covered too.
+   * The participant under test and the one conversation it replies in. Every check on the evaluated
+   * participant lives here, so the runner and the validation can't disagree about who it is.
    */
-  def validateScenario(scenario: Scenario): Either[String, Unit] =
-    for
-      _ <- validateEventSourceNames(scenario)
-      _ <- validateEmittedEventNames(scenario)
-      _ <- validateSingleEvaluated(scenario)
-      _ <- validateObserverParticipants(scenario)
-    yield ()
+  case class Evaluated(name: String, conversation: String)
 
-  private def validateSingleEvaluated(scenario: Scenario): Either[String, Unit] =
-    // The runner runs every evaluated participant as the first one: one name, one set of
-    // conversations, one shared Agent. Reject the scenario rather than misattribute its messages.
-    val evaluated = scenario.participants
+  /** The scenario's evaluated participant, or why it doesn't have exactly one that can run. */
+  def evaluated(scenario: Scenario): Either[String, Evaluated] =
+    val names = scenario.participants
       .collect {
         case (name, p) if p.participantType == ParticipantType.Evaluated => name
       }
       .toList
       .sorted
-    if evaluated.size > 1 then
+    names match
+      case Nil =>
+        Left(
+          "Scenario has no evaluated participant, so there is nothing to test. " +
+            "Give the agent under test `type: evaluated`."
+        )
+      case name :: Nil =>
+        // Observed conversations don't count: the agent reads them but can't post there.
+        scenario.conversations.filter(_.between.contains(name)).map(_.name) match
+          case conversation :: Nil => Right(Evaluated(name, conversation))
+          case Nil =>
+            Left(
+              s"Evaluated participant $name is in no conversation, so it can never reply. " +
+                "Add it to one conversation's `between` (observing a conversation doesn't count)."
+            )
+          case several =>
+            // The agent can't choose where to post: it replies where it was addressed, and a
+            // step woken by an observed event would reply in an arbitrary one of them.
+            Left(
+              s"Evaluated participant $name is in ${several.size} conversations " +
+                s"(${several.sorted.mkString(", ")}), but an evaluated participant can reply in " +
+                "only one. Keep one and observe the others; " +
+                "see https://github.com/salesforce/evalon/issues/33."
+            )
+      case several =>
+        // The runner would run every evaluated participant as one: one name, one conversation,
+        // one shared Agent. Reject the scenario rather than misattribute its messages.
+        Left(
+          s"Scenario has ${several.size} evaluated participants (${several.mkString(", ")}), " +
+            "but only one evaluated participant is supported. Make the others simulated."
+        )
+
+  /**
+   * Checks a scenario for configurations that can't be simulated, or that crash or misclassify
+   * failures at runtime, returning the evaluated participant. Run by `ScenarioRunner`, which
+   * simulates without judging.
+   */
+  def validateSimulation(scenario: Scenario): Either[String, Evaluated] =
+    for
+      _ <- validateEventSourceNames(scenario)
+      _ <- validateEmittedEventNames(scenario)
+      agent <- evaluated(scenario)
+    yield agent
+
+  /**
+   * [[validateSimulation]], plus the checks for judging the run. Run by {@link #load} and again by
+   * {@code EvalonRunner} before a simulation starts, so scenarios built directly in code are
+   * covered too.
+   */
+  def validateScenario(scenario: Scenario): Either[String, Unit] =
+    for
+      _ <- validateSimulation(scenario)
+      _ <- validateEvalCriteria(scenario)
+    yield ()
+
+  private def validateEvalCriteria(scenario: Scenario): Either[String, Unit] =
+    // The judge would make no calls and score the run 0.0, failed: an incomplete scenario that
+    // looks like a failing agent.
+    if scenario.evalCriteria.isEmpty then
       Left(
-        s"Scenario has ${evaluated.size} evaluated participants (${evaluated.mkString(", ")}), " +
-          "but only one evaluated participant is supported. Make the others simulated."
+        "Scenario has no eval_criteria, so every run would score 0 and fail. " +
+          "Add at least one criterion."
       )
     else Right(())
 
@@ -78,24 +128,6 @@ object ScenarioLoader:
       Left(
         s"Event source(s) declare reserved event name(s): ${reserved.mkString(", ")}. " +
           s"${Event.ReservedNames.toList.sorted.mkString(", ")} are sent by the harness itself."
-      )
-    else Right(())
-
-  private def validateObserverParticipants(scenario: Scenario): Either[String, Unit] =
-    // Only evaluated participants need a conversation to reply in: EvaluatedAgent replies on its
-    // first direct conversation, while simulated participants ignore observed events.
-    val evaluated = scenario.participants.collect {
-      case (name, p) if p.participantType == ParticipantType.Evaluated => name
-    }.toSet
-    val observers = scenario.observations.map(_.participant).toSet.intersect(evaluated)
-    val conversationParticipants = scenario.conversations
-      .flatMap(_.between)
-      .toSet
-    val observerOnlyParticipants = observers.diff(conversationParticipants)
-    if observerOnlyParticipants.nonEmpty then
-      Left(
-        s"Evaluated participant(s) are observers but not in any conversation: ${observerOnlyParticipants.mkString(", ")}. " +
-          "An evaluated observer must also participate in at least one conversation to have a place to respond."
       )
     else Right(())
 

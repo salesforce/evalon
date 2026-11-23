@@ -133,11 +133,12 @@ class ScenarioRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(agent.allWaitingSeen == 1)
   }
 
-  test("a scenario with no participants or event sources completes as idle at once") {
-    // Nobody exists to send an idle report, so the runner must check at startup.
+  test("a runner for a scenario with no evaluated participant is rejected when built") {
     val empty = scenario().copy(participants = Map.empty, conversations = Nil)
-    val (_, probe) = run(empty, ScriptedAgent((_, _) => silent), userLlm)
-    assert(expectCompleted(probe)._2 == StopReason.Idle)
+    val ex = intercept[IllegalArgumentException] {
+      ScenarioRunner(empty, ScriptedAgent((_, _) => silent), userLlm)
+    }
+    assert(ex.getMessage.contains("no evaluated participant"))
   }
 
   test("a stale idle report does not end the run") {

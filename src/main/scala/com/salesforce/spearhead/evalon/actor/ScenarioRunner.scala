@@ -111,10 +111,11 @@ object ScenarioRunner:
   )
 
   /**
-   * Throws IllegalArgumentException for a scenario that fails [[ScenarioLoader.validateScenario]].
-   * Checked here, not only in EvalonRunner, because direct callers skip EvalonRunner; and when the
-   * behavior is built, not when it starts, so a caller isn't left waiting on a runner that never
-   * replies.
+   * Throws IllegalArgumentException for a scenario that fails
+   * [[ScenarioLoader.validateSimulation]]. Checked here, not only in EvalonRunner, because direct
+   * callers skip EvalonRunner; and when the behavior is built, not when it starts, so a caller
+   * isn't left waiting on a runner that never replies. Eval criteria aren't required: the runner
+   * only simulates.
    */
   def apply(
       scenario: Scenario,
@@ -122,29 +123,20 @@ object ScenarioRunner:
       llm: Llm,
       onEntry: Option[TranscriptEntry => Unit] = None
   ): Behavior[Command] =
-    ScenarioLoader.validateScenario(scenario).left.foreach { e =>
-      throw IllegalArgumentException(s"Invalid scenario: $e")
-    }
-    run(scenario, agent, llm, onEntry)
+    val evaluated = ScenarioLoader
+      .validateSimulation(scenario)
+      .fold(e => throw IllegalArgumentException(s"Invalid scenario: $e"), identity)
+    run(scenario, evaluated, agent, llm, onEntry)
 
   private def run(
       scenario: Scenario,
+      evaluated: ScenarioLoader.Evaluated,
       agent: Agent,
       llm: Llm,
       onEntry: Option[TranscriptEntry => Unit]
   ): Behavior[Command] = Behaviors.receive {
     case (ctx, Run(replyTo)) =>
-      // Identify the evaluated participant
-      val agentName = scenario.participants
-        .find(_._2.participantType == ParticipantType.Evaluated)
-        .map(_._1)
-        .getOrElse("agent")
-
-      // Compute the agent's direct conversations
-      val agentDirectConversations = scenario.conversations
-        .filter(_.between.contains(agentName))
-        .map(_.name)
-        .toSet
+      val agentName = evaluated.name
 
       // Conversation lookup
       val conversations = scenario.conversations.map(c => c.name -> c).toMap
@@ -153,7 +145,7 @@ object ScenarioRunner:
       val participants: Map[String, ActorRef[Participant.Command]] = scenario.participants.map {
         case (name, config) if config.participantType == ParticipantType.Evaluated =>
           name -> ctx.spawn(
-            EvaluatedAgent(agent, ctx.self, agentName, agentDirectConversations, name),
+            EvaluatedAgent(agent, ctx.self, name, evaluated.conversation),
             s"participant-$name"
           )
         case (name, config) =>
@@ -306,10 +298,7 @@ object ScenarioRunner:
     if !allIdle(names, state.delivered, state.reported) then running(state)
     else
       state.participants.get(state.agentName) match
-        // An agent with no conversation of its own has nowhere to answer the event.
-        case Some(agent)
-            if !state.idleNotified
-              && state.directConversations.getOrElse(state.agentName, Set.empty).nonEmpty =>
+        case Some(agent) if !state.idleNotified =>
           // A harness signal, not part of the scenario, so it stays out of the transcript.
           ctx.log.info("Run is idle; sending {} all_waiting", state.agentName)
           val notified = state.copy(idleNotified = true)
