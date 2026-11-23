@@ -351,8 +351,13 @@ object SimulatedParticipant:
     val endAt = all.indexWhere(_.name == EndConversation)
     val calls = if endAt >= 0 then all.take(endAt + 1) else all
     val parsed = calls.map { call =>
-      val args = Option(call.arguments).getOrElse(Json.Null).hcursor
+      val arguments = Option(call.arguments).getOrElse(Json.Null)
+      val args = arguments.hcursor
       call.name match
+        // Every tool's schema is an object, so anything else is malformed, even for a tool that
+        // takes no arguments: a broken end_conversation must not end the run.
+        case name if !arguments.isObject =>
+          Left(s"$name needs a JSON object as arguments, got ${arguments.noSpaces}")
         case SendMessage =>
           (args.get[String]("conversation").toOption, args.get[String]("text").toOption) match
             case (Some(conv), _) if !allowed.contains(conv) =>

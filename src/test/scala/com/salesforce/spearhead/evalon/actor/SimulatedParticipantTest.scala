@@ -412,3 +412,15 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
     assert(turn.offered.toSet == Set("support_chat", "agent_assist"))
     assert(!turn.timeline.contains("Open \""))
   }
+
+  test("end_conversation with arguments that aren't a JSON object is retried, not obeyed") {
+    val llm = ControlledLlm()
+    val (rep, runner) = spawnRep(llm)
+
+    rep ! Participant.ReceiveMessage(Message("end_user", "Thanks, bye!"), "support_chat")
+    llm.nextCall().reply(LlmToolCall.of("end_conversation", "null"))
+    val retry = llm.nextCall()
+    assert(retry.timeline.contains("end_conversation"))
+    retry.reply(send("support_chat", "Goodbye!"))
+    expectSent(runner, "support_chat", "Goodbye!")
+  }
