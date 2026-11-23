@@ -328,3 +328,22 @@ class SimulatedParticipantTest extends AnyFunSuite with BeforeAndAfterAll:
         "testKit.createTestProbe[ScenarioRunner.Command]().ref)"
     )
   }
+
+  test("a null tool call from a custom client fails the run instead of crashing the actor") {
+    // What a Java client produces with a list holding a null. A broken client, not a model mistake.
+    val llm: Llm = _ =>
+      val calls = java.util.ArrayList[LlmToolCall]()
+      calls.add(null)
+      CompletableFuture.completedFuture(LlmResponse.of("", calls))
+    val (rep, runner) = spawnRep(llm)
+
+    rep ! Participant.ReceiveMessage(Message("end_user", "Hi"), "support_chat")
+    val failed = runner.fishForMessagePF(5.seconds) {
+      case _: ScenarioRunner.Idle => FishingOutcomes.continueAndIgnore
+      case _: ScenarioRunner.ParticipantFailed => FishingOutcomes.complete
+    }
+    failed match
+      case List(ScenarioRunner.ParticipantFailed("rep", cause)) =>
+        assert(cause.isInstanceOf[NullPointerException])
+      case other => fail(s"expected a failure, got $other")
+  }

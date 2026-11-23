@@ -77,10 +77,10 @@ object Llm:
 
   /**
    * Adapt a raw {@link Llm}'s {@link CompletionStage} to a {@code Future}, capturing a synchronous
-   * throw, a null stage or a null response as a failed {@code Future}. The call is by-name so the
-   * untrusted code runs inside the guard: a raw implementation that throws before returning a stage
-   * would otherwise escape the caller's `pipeToSelf`, killing the actor instead of failing the run
-   * fast.
+   * throw, a null stage, a null response or a null tool call as a failed {@code Future}. The call
+   * is by-name so the untrusted code runs inside the guard: a raw implementation that throws before
+   * returning a stage would otherwise escape the caller's `pipeToSelf`, killing the actor instead
+   * of failing the run fast.
    */
   private def toFuture(stage: => CompletionStage[LlmResponse])(using
       ExecutionContext
@@ -94,6 +94,10 @@ object Llm:
       catch case NonFatal(e) => Future.failed(e)
     future.flatMap { response =>
       if response == null then Future.failed(NullPointerException("Llm returned a null response"))
+      // A null list means no calls (as in LlmResponse.of), but a null entry is a broken client.
+      // Caught here, it fails the call; left in, it would throw inside the caller's actor.
+      else if Option(response.toolCalls).exists(_.contains(null)) then
+        Future.failed(NullPointerException("Llm returned a null tool call"))
       else Future.successful(response)
     }
 
