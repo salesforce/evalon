@@ -372,6 +372,53 @@ class EvalonRunnerTest extends AnyFunSuite with BeforeAndAfterAll:
     finally Files.deleteIfExists(tmpPath)
   }
 
+  test("a scenario with two evaluated participants is rejected at load") {
+    import java.nio.file.Files
+    val yaml = """
+      |name: two-evaluated-test
+      |description: two agents under test
+      |participants:
+      |  end_user:
+      |    type: simulated
+      |  agent:
+      |    type: evaluated
+      |  supervisor:
+      |    type: evaluated
+      |conversations:
+      |  - name: chat
+      |    between: [end_user, agent]
+      |    initiated_by: end_user
+      |  - name: escalation
+      |    between: [agent, supervisor]
+      |eval_criteria:
+      |  - name: ok
+      |    description: ok
+      |""".stripMargin
+    val tmpPath = Files.createTempFile("two-evaluated-scenario-", ".yaml")
+    try
+      Files.writeString(tmpPath, yaml)
+      val ex = intercept[RuntimeException] {
+        EvalonRunner.loadScenario(tmpPath)
+      }
+      assert(ex.getMessage.contains("agent, supervisor"))
+    finally Files.deleteIfExists(tmpPath)
+  }
+
+  test("a directly constructed scenario with two evaluated participants is rejected at run") {
+    val base = scenario("direct-two-evaluated")
+    val s = base.copy(participants =
+      base.participants.updated(
+        "supervisor",
+        ParticipantConfig("supervisor", ParticipantType.Evaluated)
+      )
+    )
+    val agent: SimpleAgent = (_, _, _) => CompletableFuture.completedFuture(AgentReply.end())
+    val ex = intercept[IllegalArgumentException] {
+      evalon.runSimple(s, agent, judgeAndChatLlm, failFastOptions)
+    }
+    assert(ex.getMessage.contains("only one evaluated participant"))
+  }
+
   test("an event source declaring a reserved event name is rejected at run") {
     val source = EventSourceConfig(
       "case_events",
